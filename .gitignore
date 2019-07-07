@@ -1,0 +1,7 @@
+*.csv
+*.log
+*.fasta
+.vscode/
+*.pyc
+*.pyo
+*.swp

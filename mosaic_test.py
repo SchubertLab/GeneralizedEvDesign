@@ -9,8 +9,7 @@ from pprint import pprint
 from Fred2.Core.Allele import Allele
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import EpitopePredictorFactory
-#from Fred2.EpitopeSelection.Mosaic import MosaicVaccineILP, MosaicVaccineGreedy, _calculate_length
-from Mosaic import MosaicVaccineILP, MosaicVaccineGreedy, _calculate_length
+from MosaicVaccineILP import MosaicVaccineILP
 
 import numpy as np
 import unittest
@@ -35,7 +34,13 @@ import click
 @click.option('--threshold', '-T', default=0.01)
 def main(sequences, trim, verbose, threshold):
     # some common alleles
-    alleles = [Allele("HLA-A*01:01"), Allele("HLA-B*07:02"), Allele("HLA-C*03:01")] 
+    alleles = [
+        Allele("HLA-A*01:01"), #, prob=0.164),
+        Allele("HLA-B*07:02"), #, prob=0.127),
+        #Allele("HLA-C*03:01", prob=),
+        Allele("HLA-C*07:02") #, prob=0.160),
+    ]
+
     if trim > 0:
         tempf = tempfile.mktemp()
         with open(tempf, 'w') as f:
@@ -46,6 +51,7 @@ def main(sequences, trim, verbose, threshold):
                     else:
                         break
         sequences = tempf
+
     prot_seqs = FileReader.read_fasta(sequences, in_type=Protein)
     peptides = list(generate_peptides_from_proteins(prot_seqs, 9))
     print(len(peptides), 'peptides generated')

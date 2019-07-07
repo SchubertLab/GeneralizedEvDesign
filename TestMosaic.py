@@ -8,7 +8,8 @@ import unittest
 from Fred2.Core.Allele import Allele
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import EpitopePredictorFactory
-from Mosaic import MosaicVaccineILP, MosaicVaccineGreedy, _calculate_length
+from MosaicVaccineILP import MosaicVaccineILP
+from MosaicVaccineGreedy import MosaicVaccineGreedy
 
 import unittest
 import os
@@ -54,7 +55,7 @@ class MosaicVaccineTestCase(unittest.TestCase):
         self.assertEqual(set(map(str, peptides[1:])), set(['KVLETKWHL', 'AADCATGYY', 'ALRMAKQNL']))
 
     def test_mosaic_ilp(self):
-        n = MosaicVaccineILP(self.result, self.thresh, t_max=15, solver="cbc")
+        n = MosaicVaccineILP(self.result, self.thresh, max_vaccine_length=15, solver="cbc")
         tour, peptides = n.solve()
         self.assertEqual(set(map(str, peptides)), set(['AADCATGYY', 'ALREYLYFL', 'EYLYFLKHL']))
 

@@ -1,7 +1,7 @@
 # This code is part of the Fred2 distribution and governed by its
 # license.  Please see the LICENSE file that should have been included
 # as part of this package.
-"""
+'''
    .. module:: Mosaic
    :synopsis:  This class implements the epitope selection functionality
     to construct so called mosaic vaccines
@@ -13,9 +13,9 @@
     ILP and to solve the specific problem with a MIP solver of choice
 
 
-.. moduleauthor:: schubert
+.. moduleauthor:: dorigatti
 
-"""
+'''
 
 from __future__ import division, print_function
 
@@ -26,26 +26,29 @@ import time
 import numpy as np
 
 import multiprocessing as mp
+import logging
 
 import pyomo.environ as aml
 from pyomo.opt import SolverFactory, TerminationCondition
 from pyomo.core.expr.numeric_expr import SumExpression
+import pyomo.kernel as pmo
 
 from Fred2.Core.Result import EpitopePredictionResult
 from Fred2.Utility import generate_overlap_graph
 from Fred2.Utility import solve_TSP_LKH as _solve_tsp
 
 
-class MosaicVaccineILP(object):
+class MosaicVaccineLazyILP(object):
 
     def __init__(self, predicted_affinities, threshold=None, max_vaccine_aminoacids=100,
-                 max_vaccine_epitopes=999999999999, solver='cbc', verbosity=0):
+                 max_vaccine_epitopes=999999999999, solver='gurobi_persistent', verbosity=0):
         if not isinstance(predicted_affinities, EpitopePredictionResult):
-            raise ValueError("first input parameter is not of type EpitopePredictionResult")
-
+            raise ValueError('first input parameter is not of type EpitopePredictionResult')
+        
         self.__raw_affinities = predicted_affinities
         self.__alleles = copy.deepcopy(self.__raw_affinities.columns.values.tolist())
         self.__allele_probs = self.__fill_allele_probs(self.__alleles)
+        assert solver.endswith('_persistent')
         self.__solver = SolverFactory(solver)
         self.__verbosity = verbosity
         self.__changed = True
@@ -54,13 +57,14 @@ class MosaicVaccineILP(object):
         self.__thresh = threshold or {}
         self.__pep_to_index = {}
         self.__max_vaccine_epitopes = max_vaccine_epitopes
+        self.__subtour_constraints = 0
 
         self.__process_parameters()
 
         self.build_model()
 
     def __process_parameters(self):
-        self.__peptides = ["start"]
+        self.__peptides = ['start']
         self.__immunogenicities = [0]
         self.__variations = set()
         self.__conservations = {0: 0}
@@ -68,9 +72,9 @@ class MosaicVaccineILP(object):
         self.__allele_bindings = {}
 
         method = self.__raw_affinities.index.values[0][1]  # TODO find better way of filtering by method
-        res_df = self.__raw_affinities.xs(self.__raw_affinities.index.values[0][1], level="Method")
+        res_df = self.__raw_affinities.xs(self.__raw_affinities.index.values[0][1], level='Method')
         threshold_mask = res_df.apply(lambda x: any(  # FIXME shouldn't we log-transform first if method is one of .... ?
-            x[allele] > self.__thresh.get(allele.name, -float("inf"))
+            x[allele] > self.__thresh.get(allele.name, -float('inf'))
             for allele in res_df.columns
         ), axis=1)
 
@@ -80,7 +84,7 @@ class MosaicVaccineILP(object):
             print(threshold_mask.sum(), 'peptides above threshold, breakdown:')
             for col in res_df.columns:
                 thr = self.__thresh[col.name]
-                print(col, np.sum(res_df[col] > thr))
+                print('   ', col, np.sum(res_df[col] > thr))
 
         res_df = res_df[threshold_mask]
         for i, tup in enumerate(res_df.itertuples()):
@@ -90,7 +94,7 @@ class MosaicVaccineILP(object):
             self.__pep_to_index[peptide] = i
             immunogen = 0
             for allele, bind_affinity in itr.izip(self.__alleles, tup[1:]):
-                if method in ["smm", "smmpmbec", "arb", "comblibsidney"]:
+                if method in ['smm', 'smmpmbec', 'arb', 'comblibsidney']:
                     # log-transform binding strenghts and thresholds
                     bind_affinity = min(1., max(0.0, 1.0 - math.log(bind_affinity, 50000)))
                     if allele.name in self.__thresh:
@@ -160,10 +164,9 @@ class MosaicVaccineILP(object):
         self.__build_model_constraint_equality()
         self.__build_model_constraint_length()
         self.__build_model_constraint_optionals()
-        self.__build_model_constraint_subtour_elimination()
-
+        
         self.__build_model_objective()
-    
+
     def __build_model_params(self):
         arc_cost = generate_overlap_graph(self.__peptides[1:])
         self.model.i         = aml.Param(self.model.Nodes, initialize=lambda model, i: self.__immunogenicities[i])
@@ -246,138 +249,6 @@ class MosaicVaccineILP(object):
         self.model.MinAntigenCovConst.deactivate()
         self.model.EpitopeConsConst.deactivate()
 
-    def __build_model_constraint_subtour_elimination(self):
-        ''' the tour must be connected (i.e. only one tour)
-            accoring to the MTZ (Miller, Tucker, Zemlin) formulation
-        '''
-        self.model.SubTour = aml.Constraint((
-            (i, j)
-            for i in xrange(1, len(self.__peptides))
-            for j in xrange(1, len(self.__peptides))
-            if i != j
-        ), rule=lambda model, i, j: (
-            None, model.u[i] - model.u[j] + (len(self.__peptides) - 1) * model.x[i, j], len(self.__peptides) - 2
-        ))
-
-    def set_k(self, k):
-        ''' Sets the number of epitopes to select
-        '''
-        tmp = self.model.k.value
-        try:
-            getattr(self.model, str(self.model.k)).set_value(int(k))
-            self.__changed = True
-        except ValueError:
-            self.__changed = False
-            getattr(self.model, str(self.model.k)).set_value(int(tmp))
-            raise ValueError('set_k', 'An error has occurred during setting parameter k. Please check if k is integer.')
-
-
-    def set_Tmax(self, t_max):
-        ''' Sets the number of aminoacids to select
-        '''
-        old_tmax = self.model.TMAX.value
-        try:
-            getattr(self.model, str(self.model.TMAX)).set_value(int(t_max))
-            self.__changed = True
-        except ValueError:
-            self.__changed = False
-            getattr(self.model, str(self.model.TMAX)).set_value(int(old_tmax))
-            raise ValueError('set_t_max',
-                             'An error has occurred during setting parameter Tmax. Please check if t_max is integer.')
-
-    def activate_allele_coverage_const(self, minCoverage):
-        ''' Enables the allele coverage constraint
-
-            :param float minCoverage: Percentage of alleles which have to be covered [0,1]
-            :raises ValueError: If the input variable is not in the same domain as the parameter
-        '''
-        # parameter
-        mc = self.model.t_allele.value
-
-        try:
-            getattr(self.model, str(self.model.t_allele)).set_value(int(len(self.__alleles) * minCoverage))
-            #variables
-
-            #constraints
-            self.model.IsAlleleCovConst.activate()
-            self.model.MinAlleleCovConst.activate()
-            self.__changed = True
-        except ValueError:
-            getattr(self.model, str(self.model.t_allele)).set_value(mc)
-            self.__changed = False
-            raise ValueError(
-                'activate_allele_coverage_const","An error occurred during activation of of the allele coverage constraint. ' +
-                'Please check your specified minimum coverage parameter to be in the range of 0.0 and 1.0.')
-
-    def deactivate_allele_coverage_const(self):
-        ''' Deactivates the allele coverage constraint
-        '''
-
-        # parameter
-        self.__changed = True
-
-        #constraints
-        self.model.IsAlleleCovConst.deactivate()
-        self.model.MinAlleleCovConst.deactivate()
-
-    def activate_antigen_coverage_const(self, t_var):
-        ''' Activates the variation coverage constraint
-
-            :param int t_var: The number of epitopes which have to come from each variation
-            :raises ValueError: If the input variable is not in the same domain as the parameter
-
-        '''
-        tmp = self.model.t_var.value
-        try:
-            getattr(self.model, str(self.model.t_var)).set_value(int(len(self.model.Q)*t_var))
-            self.model.IsAntigenCovConst.activate()
-            self.model.MinAntigenCovConst.activate()
-            self.__changed = True
-        except ValueError:
-            getattr(self.model, str(self.model.t_var)).set_value(int(tmp))
-            self.model.IsAntigenCovConst.deactivate()
-            self.model.MinAntigenCovConst.deactivate()
-            self.__changed = False
-            raise ValueError("activate_antigen_coverage_const",
-                            "An error has occurred during activation of the coverage constraint. Please make sure your input is an integer.")
-
-    def deactivate_antigen_coverage_const(self):
-        ''' Deactivates the variation coverage constraint
-        '''
-        self.__changed = True
-        self.model.IsAntigenCovConst.deactivate()
-        self.model.MinAntigenCovConst.deactivate()
-
-    def activate_epitope_conservation_const(self, t_c, conservation=None):
-        ''' Activates the epitope conservation constraint
-
-            :param float t_c: The percentage of conservation an epitope has to have [0.0,1.0].
-            :param: conservation: A dict with key=:class:`~Fred2.Core.Peptide.Peptide` specifying a different
-                                  conservation score for each :class:`~Fred2.Core.Peptide.Peptide`
-            :type conservation: dict(:class:`~Fred2.Core.Peptide.Peptide`,float)
-            :raises ValueError: If the input variable is not in the same domain as the parameter
-        '''
-        if t_c < 0 or t_c > 1:
-            raise ValueError("activate_epitope_conservation_const",
-                            "The conservation threshold is out of its numerical bound. It has to be between 0.0 and 1.0.")
-
-        self.__changed = True
-        getattr(self.model, str(self.model.t_c)).set_value(float(t_c))
-        if conservation is not None:
-            for i,e in enumerate(self.__peptides):
-                if e in conservation:
-                    getattr(self.model, str(self.model.c))[i] = conservation[e]
-                else:
-                    getattr(self.model, str(self.model.c))[i] = 0.0
-
-        self.model.EpitopeConsConst.activate()
-
-    def deactivate_epitope_conservation_const(self):
-        ''' Deactivates epitope conservation constraint
-        '''
-        self.__changed = True
-        self.model.EpitopeConsConst.deactivate()
-
     def solve(self, options=None):
         ''' solves the model optimally
         '''
@@ -385,28 +256,73 @@ class MosaicVaccineILP(object):
             return self.__result
 
         options = options or {}
-        res = self.__solver.solve(self.model, options=options, tee=1)
-        self.model.solutions.load_from(res)
+        self.__solver.set_instance(self.model)
+        while True:
+            res = self.__solver.solve(options=options, tee=self.__verbosity, save_results=False)
+            if res.solver.termination_condition != TerminationCondition.optimal:
+                raise RuntimeError('Could not solve problem - %s . Please check your settings' % res.Solution.status)
+
+            self.__solver.load_vars()
+            arcs = self.__extract_solution_from_model()
+            if self.__verbosity:
+                print(arcs)
+            
+            if not self._arcs_contain_one_subtour(arcs):
+                for i, j in arcs.iteritems():
+                    if i != 0 and j != 0:
+                        self._add_mtz_constraint(i, j)
+                        self._add_mtz_constraint(j, i)
+                if self.__verbosity:
+                    print('Subtour elimination constraints updated (%d inserted so far)' % self.__subtour_constraints)
+            else:
+                break
+
         if self.__verbosity > 0:
             res.write(num=1)
 
-        if res.solver.termination_condition != TerminationCondition.optimal:
-            raise RuntimeError("Could not solve problem - " + str(res.Solution.status) + ". Please check your settings")
-
-        tour, peptides = self.__extract_solution_from_model()
+        tour, peptides = self.__extract_tour_from_arcs(arcs)
         self.__result = tour
         return tour, peptides
+    
+    def _add_mtz_constraint(self, i, j):
+        ''' adds the MTZ subtour elimination constraint on the arc i -> j
+        '''
+        self.__subtour_constraints += 1
+        name = 'Subtour_%d' % self.__subtour_constraints
+        constraint = pmo.constraint(
+            body=self.model.u[i] - self.model.u[j] + (len(self.__peptides) - 1) * self.model.x[i, j],
+            ub=len(self.__peptides) - 2
+        )
+        setattr(self.model, name, constraint)
+        self.__solver.add_constraint(getattr(self.model, name))
 
     def __extract_solution_from_model(self):
+        ''' returns a dictionary i -> j containing the tour found by the model
+        '''
         tour_arcs = {i: j for i, j in self.model.Arcs
                      if 0.98 <= self.model.x[i, j].value <= 1.5}
-        assert tour_arcs
-
+        return tour_arcs
+    
+    @staticmethod
+    def _arcs_contain_one_subtour(arcs):
+        ''' returns true if the arcs form a single tour, false if there is more than one tour
+        '''
+        tour = set()
+        cursor = arcs.keys()[0]
+        while not tour or cursor not in tour:
+            tour.add(cursor)
+            cursor = arcs[cursor]
+        return len(tour) == len(arcs)
+    
+    def __extract_tour_from_arcs(self, arcs):
+        ''' given the arcs of a single tour, returns a list of tuples containing the tour,
+            sorted according to the order in the tour (which starts from node 0)
+        '''
         tour, peptides, cursor = [], [], 0
         while not tour or cursor != 0:
-            tour.append((cursor, tour_arcs[cursor]))
+            tour.append((cursor, arcs[cursor]))
             if cursor != 0:
                 peptides.append(self.__peptides[cursor])
-            cursor = tour_arcs[cursor]
+            cursor = arcs[cursor]
 
         return tour, peptides

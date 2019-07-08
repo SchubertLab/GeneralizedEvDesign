@@ -27,13 +27,13 @@ import Fred2
 class MosaicVaccineTestCase(unittest.TestCase):
 
     def setUp(self):
-            self.proteins = []
-            self.alleles = [Allele("HLA-A*01:01"), Allele("HLA-B*07:02"), Allele("HLA-C*03:01")]
-            self.fa_path = "resources/testSequences.fasta"
-            prot_seqs = FileReader.read_fasta(self.fa_path, in_type=Protein)
-            self.peptides = list(generate_peptides_from_proteins(prot_seqs, 9))
-            self.result = EpitopePredictorFactory("BIMAS").predict(self.peptides, self.alleles)
-            self.thresh = {"A*01:01": 10, "B*07:02": 10, "C*03:01": 10}
+        self.proteins = []
+        self.alleles = [Allele("HLA-A*01:01"), Allele("HLA-B*07:02"), Allele("HLA-C*03:01")]
+        self.fa_path = "resources/testSequences.fasta"
+        prot_seqs = FileReader.read_fasta(self.fa_path, in_type=Protein)
+        self.peptides = list(generate_peptides_from_proteins(prot_seqs, 9))
+        self.result = EpitopePredictorFactory("BIMAS").predict(self.peptides, self.alleles)
+        self.thresh = {"A*01:01": 10, "B*07:02": 10, "C*03:01": 10}
 
     #def test_selection_without_constraints(self):
     #    """
@@ -55,7 +55,7 @@ class MosaicVaccineTestCase(unittest.TestCase):
         self.assertEqual(set(map(str, peptides[1:])), set(['KVLETKWHL', 'AADCATGYY', 'ALRMAKQNL']))
 
     def test_mosaic_ilp(self):
-        n = MosaicVaccineILP(self.result, self.thresh, max_vaccine_length=15, solver="cbc")
+        n = MosaicVaccineILP(self.result, self.thresh, max_vaccine_aminoacids=15, solver="cbc")
         tour, peptides = n.solve()
         self.assertEqual(set(map(str, peptides)), set(['AADCATGYY', 'ALREYLYFL', 'EYLYFLKHL']))
 

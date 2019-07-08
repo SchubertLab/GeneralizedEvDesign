@@ -38,7 +38,7 @@ from Fred2.Utility import solve_TSP_LKH as _solve_tsp
 
 class MosaicVaccineILP(object):
 
-    def __init__(self, predicted_affinities, threshold=None, max_vaccine_length=100,
+    def __init__(self, predicted_affinities, threshold=None, max_vaccine_aminoacids=100,
                  max_vaccine_epitopes=999999999999, solver="cplex", verbosity=0):
         if not isinstance(predicted_affinities, EpitopePredictionResult):
             raise ValueError("first input parameter is not of type EpitopePredictionResult")
@@ -49,17 +49,17 @@ class MosaicVaccineILP(object):
         self.__solver = SolverFactory(solver)
         self.__verbosity = verbosity
         self.__changed = True
-        self.__max_vaccine_aminoacids = max_vaccine_length
+        self.__max_vaccine_aminoacids = max_vaccine_aminoacids
         self.__result = None
-        self.__thresh = {} if threshold is None else threshold
+        self.__thresh = threshold or {}
         self.__pep_to_index = {}
         self.__max_vaccine_epitopes = max_vaccine_epitopes
 
-        self.__init_model_parameters()
+        self.__process_parameters()
 
         self.build_model()
 
-    def __init_model_parameters(self):
+    def __process_parameters(self):
         self.__peptides = ["start"]
         self.__immunogenicities = [0]
         self.__variations = set()
@@ -69,11 +69,20 @@ class MosaicVaccineILP(object):
 
         method = self.__raw_affinities.index.values[0][1]  # TODO find better way of filtering by method
         res_df = self.__raw_affinities.xs(self.__raw_affinities.index.values[0][1], level="Method")
-        res_df = res_df[res_df.apply(lambda x: any(  # FIXME shouldn't we log-transform first if method is one of .... ?
+        threshold_mask = res_df.apply(lambda x: any(  # FIXME shouldn't we log-transform first if method is one of .... ?
             x[allele] > self.__thresh.get(allele.name, -float("inf"))
             for allele in res_df.columns
-        ), axis=1)]
+        ), axis=1)
 
+        if threshold_mask.sum() == 0:
+            raise ValueError('binding affinity threshold too high, no peptides selected')
+        else:
+            print(threshold_mask.sum(), 'peptides above threshold, breakdown:')
+            for col in res_df.columns:
+                thr = self.__thresh[col.name]
+                print(col, np.sum(res_df[col] > thr))
+
+        res_df = res_df[threshold_mask]
         for i, tup in enumerate(res_df.itertuples()):
             peptide = tup[0]
             i += 1  # skip first dummy peptide
@@ -208,7 +217,7 @@ class MosaicVaccineILP(object):
             if isinstance(aa, SumExpression) or isinstance(bb, SumExpression):
                 return aa == bb
             else:
-                return Constraint.Feasible
+                return aml.Constraint.Feasible
         self.model.Equal = aml.Constraint(self.model.Nodes, rule=Equal_rule)
     
     def __build_model_constraint_length(self):  # aka the Knapsack constraint
@@ -238,6 +247,9 @@ class MosaicVaccineILP(object):
         self.model.EpitopeConsConst.deactivate()
 
     def __build_model_constraint_subtour_elimination(self):
+        ''' the tour must be connected (i.e. only one tour)
+            accoring to the MTZ (Miller, Tucker, Zemlin) formulation
+        '''
         self.model.SubTour = aml.Constraint((
             (i, j)
             for i in xrange(1, len(self.__peptides))

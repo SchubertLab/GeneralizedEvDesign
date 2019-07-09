@@ -35,14 +35,19 @@ class MosaicVaccineLazyTestCase(unittest.TestCase):
         self.result = EpitopePredictorFactory('BIMAS').predict(self.peptides, self.alleles)
         self.thresh = {'A*01:01': 1, 'B*07:02': 1, 'C*03:01': 1}
 
-    def test_arcs_contain_one_subtour_success(self):
-        self.assertTrue(MosaicVaccineLazyILP._arcs_contain_one_subtour({
+    def test_arcs_contain_one_subtour_failure_zero_missing(self):
+        self.assertFalse(MosaicVaccineLazyILP._arcs_contain_one_subtour({
             133: 9, 9: 5, 5: 133,
         }))
     
-    def test_arcs_contain_one_subtour_failure(self):
+    def test_arcs_contain_one_subtour_failure_three_tours(self):
         self.assertFalse(MosaicVaccineLazyILP._arcs_contain_one_subtour({
-            133: 9, 9: 5, 5: 133, 25: 6, 6: 25
+            133: 9, 9: 5, 5: 133, 25: 6, 6: 25, 0: 1, 1: 0,
+        }))
+
+    def test_arcs_contain_one_subtour_failure_zero_missing(self):
+        self.assertTrue(MosaicVaccineLazyILP._arcs_contain_one_subtour({
+            133: 9, 9: 5, 5: 0, 0: 133
         }))
 
     def test_mosaic_lazy(self):

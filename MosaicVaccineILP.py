@@ -1,7 +1,7 @@
 # This code is part of the Fred2 distribution and governed by its
 # license.  Please see the LICENSE file that should have been included
 # as part of this package.
-"""
+'''
    .. module:: Mosaic
    :synopsis:  This class implements the epitope selection functionality
     to construct so called mosaic vaccines
@@ -15,7 +15,7 @@
 
 .. moduleauthor:: schubert
 
-"""
+'''
 
 from __future__ import division, print_function
 
@@ -39,9 +39,9 @@ from Fred2.Utility import solve_TSP_LKH as _solve_tsp
 class MosaicVaccineILP(object):
 
     def __init__(self, predicted_affinities, threshold=None, max_vaccine_aminoacids=100,
-                 max_vaccine_epitopes=999999999999, solver='cbc', verbosity=0):
+                 max_vaccine_epitopes=999999999999, solver='gurobi', verbosity=0):
         if not isinstance(predicted_affinities, EpitopePredictionResult):
-            raise ValueError("first input parameter is not of type EpitopePredictionResult")
+            raise ValueError('first input parameter is not of type EpitopePredictionResult')
 
         self.__raw_affinities = predicted_affinities
         self.__alleles = copy.deepcopy(self.__raw_affinities.columns.values.tolist())
@@ -60,7 +60,7 @@ class MosaicVaccineILP(object):
         self.build_model()
 
     def __process_parameters(self):
-        self.__peptides = ["start"]
+        self.__peptides = ['start']
         self.__immunogenicities = [0]
         self.__variations = set()
         self.__conservations = {0: 0}
@@ -68,9 +68,9 @@ class MosaicVaccineILP(object):
         self.__allele_bindings = {}
 
         method = self.__raw_affinities.index.values[0][1]  # TODO find better way of filtering by method
-        res_df = self.__raw_affinities.xs(self.__raw_affinities.index.values[0][1], level="Method")
+        res_df = self.__raw_affinities.xs(self.__raw_affinities.index.values[0][1], level='Method')
         threshold_mask = res_df.apply(lambda x: any(  # FIXME shouldn't we log-transform first if method is one of .... ?
-            x[allele] > self.__thresh.get(allele.name, -float("inf"))
+            x[allele] > self.__thresh.get(allele.name, -float('inf'))
             for allele in res_df.columns
         ), axis=1)
 
@@ -90,7 +90,7 @@ class MosaicVaccineILP(object):
             self.__pep_to_index[peptide] = i
             immunogen = 0
             for allele, bind_affinity in itr.izip(self.__alleles, tup[1:]):
-                if method in ["smm", "smmpmbec", "arb", "comblibsidney"]:
+                if method in ['smm', 'smmpmbec', 'arb', 'comblibsidney']:
                     # log-transform binding strenghts and thresholds
                     bind_affinity = min(1., max(0.0, 1.0 - math.log(bind_affinity, 50000)))
                     if allele.name in self.__thresh:
@@ -306,7 +306,7 @@ class MosaicVaccineILP(object):
             getattr(self.model, str(self.model.t_allele)).set_value(mc)
             self.__changed = False
             raise ValueError(
-                'activate_allele_coverage_const","An error occurred during activation of of the allele coverage constraint. ' +
+                'activate_allele_coverage_const','An error occurred during activation of of the allele coverage constraint. ' +
                 'Please check your specified minimum coverage parameter to be in the range of 0.0 and 1.0.')
 
     def deactivate_allele_coverage_const(self):
@@ -338,8 +338,8 @@ class MosaicVaccineILP(object):
             self.model.IsAntigenCovConst.deactivate()
             self.model.MinAntigenCovConst.deactivate()
             self.__changed = False
-            raise ValueError("activate_antigen_coverage_const",
-                            "An error has occurred during activation of the coverage constraint. Please make sure your input is an integer.")
+            raise ValueError('activate_antigen_coverage_const',
+                            'An error has occurred during activation of the coverage constraint. Please make sure your input is an integer.')
 
     def deactivate_antigen_coverage_const(self):
         ''' Deactivates the variation coverage constraint
@@ -358,8 +358,8 @@ class MosaicVaccineILP(object):
             :raises ValueError: If the input variable is not in the same domain as the parameter
         '''
         if t_c < 0 or t_c > 1:
-            raise ValueError("activate_epitope_conservation_const",
-                            "The conservation threshold is out of its numerical bound. It has to be between 0.0 and 1.0.")
+            raise ValueError('activate_epitope_conservation_const',
+                            'The conservation threshold is out of its numerical bound. It has to be between 0.0 and 1.0.')
 
         self.__changed = True
         getattr(self.model, str(self.model.t_c)).set_value(float(t_c))
@@ -391,7 +391,7 @@ class MosaicVaccineILP(object):
             res.write(num=1)
 
         if res.solver.termination_condition != TerminationCondition.optimal:
-            raise RuntimeError("Could not solve problem - " + str(res.Solution.status) + ". Please check your settings")
+            raise RuntimeError('Could not solve problem - ' + str(res.Solution.status) + '. Please check your settings')
 
         tour, peptides = self.__extract_solution_from_model()
         self.__result = tour

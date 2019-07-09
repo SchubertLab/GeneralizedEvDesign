@@ -270,8 +270,8 @@ class MosaicVaccineLazyILP(object):
             if not self._arcs_contain_one_subtour(arcs):
                 for i, j in arcs.iteritems():
                     if i != 0 and j != 0:
-                        self._add_mtz_constraint(i, j)
                         self._add_mtz_constraint(j, i)
+                        self._add_mtz_constraint(i, j)
                 if self.__verbosity:
                     print('Subtour elimination constraints updated (%d inserted so far)' % self.__subtour_constraints)
             else:
@@ -305,8 +305,10 @@ class MosaicVaccineLazyILP(object):
     
     @staticmethod
     def _arcs_contain_one_subtour(arcs):
-        ''' returns true if the arcs form a single tour, false if there is more than one tour
+        ''' returns true if the arcs form a single tour starting from 0, false if there is more than one tour
         '''
+        if 0 not in arcs:
+            return False
         tour = set()
         cursor = arcs.keys()[0]
         while not tour or cursor not in tour:
@@ -318,6 +320,8 @@ class MosaicVaccineLazyILP(object):
         ''' given the arcs of a single tour, returns a list of tuples containing the tour,
             sorted according to the order in the tour (which starts from node 0)
         '''
+        print(arcs)
+        assert 0 in arcs
         tour, peptides, cursor = [], [], 0
         while not tour or cursor != 0:
             tour.append((cursor, arcs[cursor]))

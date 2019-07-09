@@ -41,10 +41,14 @@ from Fred2.Utility import solve_TSP_LKH as _solve_tsp
 class MosaicVaccineLazyILP(object):
 
     def __init__(self, predicted_affinities, threshold=None, max_vaccine_aminoacids=100,
-                 max_vaccine_epitopes=999999999999, solver='gurobi_persistent', verbosity=0):
+                 max_vaccine_epitopes=999999999999, solver='gurobi_persistent', verbosity=0,
+                 subtour_elimination='dfj'):
         if not isinstance(predicted_affinities, EpitopePredictionResult):
             raise ValueError('first input parameter is not of type EpitopePredictionResult')
+        elif subtour_elimination not in ['dfj', 'mtz']:
+            raise ValueError('subtour elimination method must be either "dfj" or "mtz"')
         
+        self._subtour_elimination_method = subtour_elimination
         self.__raw_affinities = predicted_affinities
         self.__alleles = copy.deepcopy(self.__raw_affinities.columns.values.tolist())
         self.__allele_probs = self.__fill_allele_probs(self.__alleles)
@@ -274,7 +278,10 @@ class MosaicVaccineLazyILP(object):
                     print('   ', tt)
 
             if len(tours) > 1:
-                self._eliminate_subtours(arcs, tours)
+                if self._subtour_elimination_method == 'mtz':
+                    self._eliminate_subtours_mtz(arcs, tours)
+                else:
+                    self._eliminate_subtours_dfj(arcs, tours)
                 if self.__verbosity:
                     print('========================')
                     print('Invalid solution returned!')
@@ -292,7 +299,7 @@ class MosaicVaccineLazyILP(object):
         vaccine_peptides = [self.__peptides[j] for i, j in self.__result[:-1]]
         return self.__result, vaccine_peptides
 
-    def _eliminate_subtours(self, arcs, tours):
+    def _eliminate_subtours_dfj(self, arcs, tours):
         ''' adds DFJ subtour elimination constraints
         '''
         for tour in tours:
@@ -333,6 +340,8 @@ class MosaicVaccineLazyILP(object):
     
     @staticmethod
     def _extract_tours_from_arcs(arcs):
+        ''' given a dictionary of arcs, returns a list of tours, where every tour is a list of arcs
+        '''
         assert set(arcs.keys()) == set(arcs.values())
         not_assigned, assigned = set(arcs.keys()), set()
 

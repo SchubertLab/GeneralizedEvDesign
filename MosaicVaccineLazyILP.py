@@ -265,36 +265,64 @@ class MosaicVaccineLazyILP(object):
             self.__solver.load_vars()
             arcs = self.__extract_solution_from_model()
             if self.__verbosity:
-                print(arcs)
+                print('Solution contains the following arcs:', arcs)
             
-            if not self._arcs_contain_one_subtour(arcs):
-                for i, j in arcs.iteritems():
-                    if i != 0 and j != 0:
-                        self._add_mtz_constraint(j, i)
-                        self._add_mtz_constraint(i, j)
+            tours = self._extract_tours_from_arcs(arcs)
+            if self.__verbosity:
+                print('Solution contains the following tour(s):')
+                for tt in tours:
+                    print('   ', tt)
+
+            if len(tours) > 1:
+                self._eliminate_subtours(arcs, tours)
                 if self.__verbosity:
+                    print('========================')
+                    print('Invalid solution returned!')
                     print('Subtour elimination constraints updated (%d inserted so far)' % self.__subtour_constraints)
+                    print('')
+                    print('Restarting solver on the updated problem')
+                    print('========================')
             else:
                 break
 
         if self.__verbosity > 0:
             res.write(num=1)
 
-        tour, peptides = self.__extract_tour_from_arcs(arcs)
-        self.__result = tour
-        return tour, peptides
-    
-    def _add_mtz_constraint(self, i, j):
-        ''' adds the MTZ subtour elimination constraint on the arc i -> j
+        self.__result = tours[0]
+        vaccine_peptides = [self.__peptides[j] for i, j in self.__result[:-1]]
+        return self.__result, vaccine_peptides
+
+    def _eliminate_subtours(self, arcs, tours):
+        ''' adds DFJ subtour elimination constraints
         '''
-        self.__subtour_constraints += 1
-        name = 'Subtour_%d' % self.__subtour_constraints
-        constraint = pmo.constraint(
-            body=self.model.u[i] - self.model.u[j] + (len(self.__peptides) - 1) * self.model.x[i, j],
-            ub=len(self.__peptides) - 2
-        )
-        setattr(self.model, name, constraint)
-        self.__solver.add_constraint(getattr(self.model, name))
+        for tour in tours:
+            tour_nodes = set(i for i, _ in tour)
+            self.__subtour_constraints += 1
+            name = 'Subtour_%d' % self.__subtour_constraints
+            constraint = pmo.constraint(
+                body=sum(self.model.x[i, j] for i in tour_nodes for j in tour_nodes if i != j),
+                ub=len(tour_nodes) - 1
+            )
+            setattr(self.model, name, constraint)
+            self.__solver.add_constraint(getattr(self.model, name))
+
+    def _eliminate_subtours_mtz(self, arcs, tours):
+        ''' adds MTZ subtour elimination constraints
+        '''
+        def add_mtz_constraint(i, j):
+            self.__subtour_constraints += 1
+            name = 'Subtour_%d' % self.__subtour_constraints
+            constraint = pmo.constraint(
+                body=self.model.u[i] - self.model.u[j] + (len(self.__peptides) - 1) * self.model.x[i, j],
+                ub=len(self.__peptides) - 2
+            )
+            setattr(self.model, name, constraint)
+            self.__solver.add_constraint(getattr(self.model, name))
+
+        for i, j in arcs.iteritems():
+            if i != 0 and j != 0:
+                add_mtz_constraint(j, i)
+                add_mtz_constraint(i, j)
 
     def __extract_solution_from_model(self):
         ''' returns a dictionary i -> j containing the tour found by the model
@@ -304,29 +332,17 @@ class MosaicVaccineLazyILP(object):
         return tour_arcs
     
     @staticmethod
-    def _arcs_contain_one_subtour(arcs):
-        ''' returns true if the arcs form a single tour starting from 0, false if there is more than one tour
-        '''
-        if 0 not in arcs:
-            return False
-        tour = set()
-        cursor = arcs.keys()[0]
-        while not tour or cursor not in tour:
-            tour.add(cursor)
-            cursor = arcs[cursor]
-        return len(tour) == len(arcs)
-    
-    def __extract_tour_from_arcs(self, arcs):
-        ''' given the arcs of a single tour, returns a list of tuples containing the tour,
-            sorted according to the order in the tour (which starts from node 0)
-        '''
-        print(arcs)
-        assert 0 in arcs
-        tour, peptides, cursor = [], [], 0
-        while not tour or cursor != 0:
-            tour.append((cursor, arcs[cursor]))
-            if cursor != 0:
-                peptides.append(self.__peptides[cursor])
-            cursor = arcs[cursor]
+    def _extract_tours_from_arcs(arcs):
+        assert set(arcs.keys()) == set(arcs.values())
+        not_assigned, assigned = set(arcs.keys()), set()
 
-        return tour, peptides
+        tours = []
+        while not_assigned:
+            tour, cursor = [], not_assigned.pop()
+            while not tour or cursor not in assigned:
+                tour.append((cursor, arcs[cursor]))
+                assigned.add(cursor)
+                not_assigned.discard(cursor)
+                cursor = arcs[cursor]
+            tours.append(tour)
+        return tours

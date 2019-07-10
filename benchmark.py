@@ -1,3 +1,4 @@
+from __future__ import print_function
 import subprocess
 import csv
 import os
@@ -74,30 +75,45 @@ def process_result():
 
 @cli.command()
 def run_benchmark():
+    def get_new_file_name(method, size):
+        trials = [
+            int(fname[:-4].split('-')[5])
+            for fname in os.listdir('./dev')
+            if fname.startswith('%s-random-%d-repeat-' % (method, size))
+        ]
+
+        index = (max(trials) + 1) if trials else 0
+        return '%s-random-%d-repeat-%d.log' % (method, size, index)
+
     base_args = [
         'python', 'mosaic_test.py', 'resources/hivgen.fasta',
         '-v', '-a', '35', '-T'
     ]
 
-    for i in range(50):
-        for r in [5, 10, 15, 20, 25, 30]:
+    while True:
+        for size in [5, 10, 15, 20, 25, 30]:
             for lazy in [None, 'mtz', 'dfj']:
-                args = base_args + ['-r', str(r)]
+                args = base_args + ['-r', str(size)]
                 if lazy is not None:
                     args.extend(['-l', lazy])
                     method = lazy + '-lazy'
                 else:
                     method = 'mtz-greedy'
                 
-                fname = './dev/%s-random-%d-repeat-%d.log' % (method, r, i)
-                print(' '.join(args))
-                print(fname)
-                with open(fname, 'w') as fout:
-                    start_time = time.time()
-                    subprocess.call(args, stdout=fout, stderr=fout)
-                    end_time = time.time()
+                fname = './dev/' + get_new_file_name(method, size)
+                print(' '.join(args), '>', fname)
+
+                try:
+                    with open(fname, 'w') as fout:
+                        start_time = time.time()
+                        subprocess.call(args, stdout=fout, stderr=fout)
+                        end_time = time.time()
+                except KeyboardInterrupt:
+                    print('Interrupted - removing incomplete log file !')
+                    os.remove(fname)
+                    return
                 
-                print('%d;%d;%s;%.2f' % (r, i, lazy, end_time - start_time))
+                print('%d;%d;%s;%.2f' % (size, i, lazy, end_time - start_time))
 
 
 if __name__ == '__main__':

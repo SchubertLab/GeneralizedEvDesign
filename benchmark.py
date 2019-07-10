@@ -1,9 +1,17 @@
 from __future__ import print_function
+import random
 import subprocess
-import csv
 import os
 import time
 import click
+import pandas as pd
+
+try:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    MPL_EXC = None
+except Exception as MPL_EXC:
+    pass
 
 
 @click.group()
@@ -55,22 +63,40 @@ def process_result():
         })
         return info
 
-    writer = None
-    with open('./dev/benchmark.csv', 'w') as f:
-        for fname in os.listdir('./dev/'):
-            run_info = parse_file_name(fname)
-            if not run_info:
-                continue
+    results = []
+    for fname in os.listdir('./dev/'):
+        run_info = parse_file_name(fname)
+        if not run_info:
+            continue
 
-            stopwatch = parse_log_file(fname)
-            if not stopwatch:
-                continue
+        stopwatch = parse_log_file(fname)
+        if not stopwatch:
+            continue
 
-            run_info.update(stopwatch)
-            if writer is None:
-                writer = csv.DictWriter(f, run_info.keys())
-                writer.writeheader()
-            writer.writerow(run_info)
+        run_info.update(stopwatch)
+        results.append(run_info)
+
+    df = pd.DataFrame(results)
+    df.to_csv('./dev/benchmark.csv', index=False)
+
+    if MPL_EXC is not None:
+        print('Cannot import matplotlib or seaborn, will not produce plots! Error is:', MPL_EXC)
+
+    df['total_minutes'] = df['total'] / 60.0
+    # here I group by peptides, so there is no need to deal with repeats since it's unlikely
+    # two runs have the same number of peptides. and if that happens we just take the mean, so no big deal
+    summary_df = df.pivot_table('total_minutes', 'peptides', ['method', 'constraints'])
+
+    sns.set()
+    for col, marker in zip(summary_df.columns, 'o^s'):
+        values = summary_df[col].dropna().reset_index().values.T
+        plt.plot(values[0], values[1], marker, label=col)
+    plt.legend()
+    plt.xlabel('Candidate Peptides')
+    plt.ylabel('Time (min.)')
+    plt.title('Total Time to Design a 35 Aminoacids Vaccine')
+    plt.tight_layout()
+    plt.savefig('./dev/benchmark.png')
 
 
 @cli.command()
@@ -91,29 +117,28 @@ def run_benchmark():
     ]
 
     while True:
-        for size in [5, 10, 15, 20, 25, 30]:
-            for lazy in [None, 'mtz', 'dfj']:
-                args = base_args + ['-r', str(size)]
-                if lazy is not None:
-                    args.extend(['-l', lazy])
-                    method = lazy + '-lazy'
-                else:
-                    method = 'mtz-greedy'
-                
-                fname = './dev/' + get_new_file_name(method, size)
-                print(' '.join(args), '>', fname)
+        size = random.randint(5, 31)
+        lazy = random.choice([None, 'mtz', 'dfj'])
 
-                try:
-                    with open(fname, 'w') as fout:
-                        start_time = time.time()
-                        subprocess.call(args, stdout=fout, stderr=fout)
-                        end_time = time.time()
-                except KeyboardInterrupt:
-                    print('Interrupted - removing incomplete log file !')
-                    os.remove(fname)
-                    return
-                
-                print('%d;%d;%s;%.2f' % (size, i, lazy, end_time - start_time))
+        args = base_args + ['-r', str(size)]
+        if lazy is not None:
+            args.extend(['-l', lazy])
+            method = lazy + '-lazy'
+        else:
+            method = 'mtz-greedy'
+        
+        fname = './dev/' + get_new_file_name(method, size)
+        print(' '.join(args), '>', fname)
+
+        try:
+            with open(fname, 'w') as fout:
+                start_time = time.time()
+                subprocess.call(args, stdout=fout, stderr=fout)
+                end_time = time.time()
+        except KeyboardInterrupt:
+            print('Interrupted - removing incomplete log file!')
+            os.remove(fname)
+            return
 
 
 if __name__ == '__main__':

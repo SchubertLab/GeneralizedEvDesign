@@ -41,7 +41,7 @@ from Fred2.Utility import solve_TSP_LKH as _solve_tsp
 class MosaicVaccineLazyILP(object):
 
     def __init__(self, predicted_affinities, threshold=None, max_vaccine_aminoacids=100,
-                 max_vaccine_epitopes=999999999999, solver='gurobi_persistent', verbosity=0,
+                 max_vaccine_epitopes=999999999999, verbosity=0,
                  subtour_elimination='dfj'):
         if not isinstance(predicted_affinities, EpitopePredictionResult):
             raise ValueError('first input parameter is not of type EpitopePredictionResult')
@@ -52,8 +52,7 @@ class MosaicVaccineLazyILP(object):
         self.__raw_affinities = predicted_affinities
         self.__alleles = copy.deepcopy(self.__raw_affinities.columns.values.tolist())
         self.__allele_probs = self.__fill_allele_probs(self.__alleles)
-        assert solver.endswith('_persistent')
-        self.__solver = SolverFactory(solver)
+        self.__solver = SolverFactory('gurobi_persistent')
         self.__verbosity = verbosity
         self.__changed = True
         self.__max_vaccine_aminoacids = max_vaccine_aminoacids
@@ -236,9 +235,9 @@ class MosaicVaccineLazyILP(object):
     def __build_model_variables(self):
         self.model.x         = aml.Var(self.model.Arcs, domain=aml.Binary, bounds=(0, 1),
                                        initialize=lambda model, u, v: (u, v) in self._initial_arcs)
-        self.model.z         = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
         self.model.y         = aml.Var(self.model.Nodes, domain=aml.Binary,
                                        initialize=lambda model, u: u in self._initial_peptides)
+        self.model.z         = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
         self.model.w         = aml.Var(self.model.Q, domain=aml.Binary, initialize=0)
 
         if self._subtour_elimination_method == 'mtz':
@@ -305,14 +304,18 @@ class MosaicVaccineLazyILP(object):
         if not self.__changed:
             return self.__result
 
-        options = options or {}
+        options = options if options is not None else {
+            'MIPFocus': 3,  # focus on improving the bound
+            'Method': 3,    # use the concurrent solver for root relaxation
+        }
         self.__solver.set_instance(self.model)
         while True:
-            res = self.__solver.solve(options=options, tee=self.__verbosity, save_results=False)
+            res = self.__solver.solve(options=options, tee=bool(self.__verbosity), save_results=False,
+                                      report_timing=True)
             if res.solver.termination_condition != TerminationCondition.optimal:
                 raise RuntimeError('Could not solve problem - %s . Please check your settings' % res.Solution.status)
 
-            self.__solver.load_vars([self.model.x, self.model.y, self.model.Arcs])
+            self.__solver.load_vars()
             arcs = self.__extract_solution_from_model()
             if self.__verbosity:
                 print('Solution contains the following arcs:', arcs)
@@ -361,9 +364,6 @@ class MosaicVaccineLazyILP(object):
         for u, v in new_arcs:
             self.model.x[u, v] = self.model.y[u] = 1
         
-        self.__solver.update_var(self.model.x)
-        self.__solver.update_var(self.model.y)
-
     def _eliminate_subtours_dfj(self, arcs, tours):
         ''' adds DFJ subtour elimination constraints
         '''

@@ -37,10 +37,13 @@ def get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshol
         if randomize > 1:
             randomize = randomize / 100
         thresh = {}
-        affinities = np.random.random(size=len(bindings))
+
+        # chosen so that 100*randomize % of peptides have at least one allele
+        # with larger binding strength, assuming that these are uniform(0, 1)
+        tt = (1 - randomize)**(1.0 / len(alleles))
         for col in bindings.columns:
-            bindings[col] = affinities
-            thresh[col.name] = 1 - randomize
+            bindings[col] = np.random.random(size=len(bindings))
+            thresh[col.name] = tt
     else:
         thresh = THRESHOLD_PRESETS[threshold] if threshold < len(THRESHOLD_PRESETS) else THRESHOLD_PRESETS[-1]
 

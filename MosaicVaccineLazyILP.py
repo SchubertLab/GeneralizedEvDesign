@@ -207,7 +207,7 @@ class MosaicVaccineLazyILP(object):
         self.__build_model_constraint_connectivity()
         self.__build_model_constraint_equality()
         self.__build_model_constraint_length()
-        self.__build_model_constraint_optionals()
+        #self.__build_model_optionals()
         
         self.__build_model_objective()
 
@@ -218,18 +218,10 @@ class MosaicVaccineLazyILP(object):
         self.model.i         = aml.Param(self.model.Nodes, initialize=lambda model, i: self.__immunogenicities[i])
         self.model.d         = aml.Param(self.model.Arcs, initialize=lambda model, i, j: self.__arc_cost[i][j])
         self.model.k         = aml.Param(initialize=self.__max_vaccine_epitopes, within=aml.PositiveIntegers, mutable=True)
-        self.model.c         = aml.Param(self.model.Nodes, initialize=lambda model, e: self.__conservations[e], mutable=True)
         self.model.TMAX      = aml.Param(initialize=self.__max_vaccine_aminoacids, within=aml.PositiveIntegers, mutable=True)
-        self.model.t_allele  = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
-        self.model.t_var     = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
-        self.model.t_c       = aml.Param(initialize=0.0, within=aml.NonNegativeReals, mutable=True)
     
     def __build_model_sets(self):
         self.model.Nodes     = aml.RangeSet(0, len(self.__peptides) - 1)
-        self.model.Q         = aml.Set(initialize=self.__variations)
-        self.model.A         = aml.Set(initialize=self.__allele_bindings.keys())
-        self.model.E_var     = aml.Set(self.model.Q, initialize=lambda mode, v: self.__epitope_variations[v])
-        self.model.A_I       = aml.Set(self.model.A, initialize=lambda model, allele: self.__allele_bindings[allele])
         self.model.Arcs      = self.model.Nodes * self.model.Nodes # FIXME dont know if this includes self references as well....
 
     def __build_model_variables(self):
@@ -237,11 +229,9 @@ class MosaicVaccineLazyILP(object):
                                        initialize=lambda model, u, v: (u, v) in self._initial_arcs)
         self.model.y         = aml.Var(self.model.Nodes, domain=aml.Binary,
                                        initialize=lambda model, u: u in self._initial_peptides)
-        self.model.z         = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
-        self.model.w         = aml.Var(self.model.Q, domain=aml.Binary, initialize=0)
 
         if self._subtour_elimination_method == 'mtz':
-            self.model.u         = aml.Var(self.model.Nodes - set([0]), bounds=(1.0, len(self.__peptides) - 1))
+            self.model.u     = aml.Var(self.model.Nodes - set([0]), bounds=(1.0, len(self.__peptides) - 1))
 
     def __build_model_objective(self):
         self.model.Obj = aml.Objective(rule=lambda model: sum(model.y[i] * model.i[i] for i in model.Nodes),
@@ -250,7 +240,6 @@ class MosaicVaccineLazyILP(object):
     def __build_model_constraint_connectivity(self):
         ''' select at most one incoming and one outgoing connection from every node
             selected nodes must have (at least one) outgoing connection
-            self-connections are not allowed
         '''
         self.model.ConnOut = aml.Constraint(self.model.Nodes, rule=lambda model, node:
             (0.0, sum(model.x[node, j] for j in model.Nodes if j != node), 1.0))
@@ -280,7 +269,20 @@ class MosaicVaccineLazyILP(object):
         self.model.maxNofEpitopes = aml.Constraint(rule=lambda model: (
             None, sum(model.y[n] for n in model.Nodes), model.k))
 
-    def __build_model_constraint_optionals(self):
+    def __build_model_optionals(self):
+        self.model.c         = aml.Param(self.model.Nodes, initialize=lambda model, e: self.__conservations[e], mutable=True)
+        self.model.t_allele  = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
+        self.model.t_var     = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
+        self.model.t_c       = aml.Param(initialize=0.0, within=aml.NonNegativeReals, mutable=True)
+
+        self.model.Q         = aml.Set(initialize=self.__variations)
+        self.model.A         = aml.Set(initialize=self.__allele_bindings.keys())
+        self.model.E_var     = aml.Set(self.model.Q, initialize=lambda mode, v: self.__epitope_variations[v])
+        self.model.A_I       = aml.Set(self.model.A, initialize=lambda model, allele: self.__allele_bindings[allele])
+
+        self.model.z         = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
+        self.model.w         = aml.Var(self.model.Q, domain=aml.Binary, initialize=0)
+
         self.model.IsAlleleCovConst = aml.Constraint(self.model.A, rule=lambda model, allele:
             sum(model.y[e] for e in model.A_I[allele]) >= model.z[allele])
         self.model.MinAlleleCovConst = aml.Constraint(rule=lambda model:
@@ -292,6 +294,7 @@ class MosaicVaccineLazyILP(object):
         self.model.EpitopeConsConst = aml.Constraint(self.model.Nodes, rule=lambda model, e:
             (1 - model.c[e]) * model.y[e] <= 1 - model.t_c)
 
+        # TODO need a way to re-activate them
         self.model.IsAlleleCovConst.deactivate()
         self.model.MinAlleleCovConst.deactivate()
         self.model.IsAntigenCovConst.deactivate()

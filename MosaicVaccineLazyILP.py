@@ -65,6 +65,9 @@ class MosaicVaccineLazyILP(object):
 
         self.__process_parameters()
 
+        self.__arc_cost = generate_overlap_graph(self.__peptides[1:])
+        self._initial_peptides, self._initial_arcs = self._find_initial_solution()
+
         self.build_model()
 
     def __process_parameters(self):
@@ -158,7 +161,45 @@ class MosaicVaccineLazyILP(object):
 
         return {a.name: a.prob for a in alleles}
     
+    def _find_initial_solution(self):
+        ''' find an initial solution to initialize the variables
+            greedily select the peptides with highest immunogenicity
+            until the maximum length of the vaccine is reached
+
+            returns the set of epitopes and the set of arcs
+        '''
+        sorted_by_immunogenicity = sorted(
+            self.__peptides, key=lambda pep: self.__immunogenicities[self.__pep_to_index.get(pep, 0)], reverse=True
+        )
+
+        solution_peptides, solution_arcs = [0], []
+        aminoacids_length = 0
+        for i, pep in enumerate(sorted_by_immunogenicity):
+            if i >= self.__max_vaccine_epitopes:
+                break
+            
+            idx = self.__pep_to_index[pep]
+            aminoacids_length += self.__arc_cost[solution_peptides[-1], idx]
+            if aminoacids_length > self.__max_vaccine_aminoacids:
+                break
+            
+            solution_arcs.append((solution_peptides[-1], idx))
+            solution_peptides.append(idx)
+    
+        solution_arcs.append((solution_peptides[-1], 0))       
+        if self.__verbosity:
+            print('The model will be initialized with the following feasible solution:')
+            for u, v in solution_arcs:
+                print('    %d (%s) -> %d (%s) (cost: %d, immunogenicity: %.2f)' % (
+                    u, self.__peptides[u], v, self.__peptides[v], 
+                    self.__arc_cost[u, v], self.__immunogenicities[v]
+                ))
+    
+        return set(solution_peptides), set(solution_arcs)
+    
     def build_model(self):
+        if self.__verbosity:
+            print('Building model...')
         self.model = aml.ConcreteModel()
         self.__build_model_sets()
         self.__build_model_params()
@@ -171,10 +212,12 @@ class MosaicVaccineLazyILP(object):
         
         self.__build_model_objective()
 
+        if self.__verbosity:
+            print('Model built!')
+
     def __build_model_params(self):
-        arc_cost = generate_overlap_graph(self.__peptides[1:])
         self.model.i         = aml.Param(self.model.Nodes, initialize=lambda model, i: self.__immunogenicities[i])
-        self.model.d         = aml.Param(self.model.Arcs, initialize=lambda model, i, j: arc_cost[i][j])
+        self.model.d         = aml.Param(self.model.Arcs, initialize=lambda model, i, j: self.__arc_cost[i][j])
         self.model.k         = aml.Param(initialize=self.__max_vaccine_epitopes, within=aml.PositiveIntegers, mutable=True)
         self.model.c         = aml.Param(self.model.Nodes, initialize=lambda model, e: self.__conservations[e], mutable=True)
         self.model.TMAX      = aml.Param(initialize=self.__max_vaccine_aminoacids, within=aml.PositiveIntegers, mutable=True)
@@ -191,11 +234,15 @@ class MosaicVaccineLazyILP(object):
         self.model.Arcs      = self.model.Nodes * self.model.Nodes # FIXME dont know if this includes self references as well....
 
     def __build_model_variables(self):
-        self.model.x         = aml.Var(self.model.Arcs, domain=aml.Binary, bounds=(0, 1), initialize=0)
+        self.model.x         = aml.Var(self.model.Arcs, domain=aml.Binary, bounds=(0, 1),
+                                       initialize=lambda model, u, v: (u, v) in self._initial_arcs)
         self.model.z         = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
-        self.model.y         = aml.Var(self.model.Nodes, domain=aml.Binary, initialize=0)
+        self.model.y         = aml.Var(self.model.Nodes, domain=aml.Binary,
+                                       initialize=lambda model, u: u in self._initial_peptides)
         self.model.w         = aml.Var(self.model.Q, domain=aml.Binary, initialize=0)
-        self.model.u         = aml.Var(self.model.Nodes - set([0]), bounds=(1.0, len(self.__peptides) - 1))
+
+        if self._subtour_elimination_method == 'mtz':
+            self.model.u         = aml.Var(self.model.Nodes - set([0]), bounds=(1.0, len(self.__peptides) - 1))
 
     def __build_model_objective(self):
         self.model.Obj = aml.Objective(rule=lambda model: sum(model.y[i] * model.i[i] for i in model.Nodes),
@@ -210,13 +257,11 @@ class MosaicVaccineLazyILP(object):
             (0.0, sum(model.x[node, j] for j in model.Nodes if j != node), 1.0))
         self.model.ConnIn = aml.Constraint(self.model.Nodes, rule=lambda model, node:
             (0.0, sum(model.x[i, node] for i in model.Nodes if i != node), 1.0))
-        self.model.IsNodeSelected = aml.Constraint(self.model.Nodes, rule=lambda model, n:
-            sum(model.x[n, m] for m in model.Nodes if n != m) >= model.y[n])
-        self.model.NoSelfConns = aml.Constraint(self.model.Nodes, rule=lambda model, node:
-            (0.0, model.x[node, node], 0.0))
+        self.model.IsNodeSelected = aml.Constraint(self.model.Nodes, rule=lambda model, node:
+            sum(model.x[node, i] for i in model.Nodes if i != node) >= model.y[node])
     
     def __build_model_constraint_equality(self):
-        ''' number of selected incoming connections equals number of selected outgoing connections
+        ''' number of selected incoming connections must equal number of selected outgoing connections
         '''
         def Equal_rule(model, node):
             aa = sum(model.x[node, j] for j in model.Nodes if j != node)
@@ -225,6 +270,7 @@ class MosaicVaccineLazyILP(object):
                 return aa == bb
             else:
                 return aml.Constraint.Feasible
+
         self.model.Equal = aml.Constraint(self.model.Nodes, rule=Equal_rule)
     
     def __build_model_constraint_length(self):  # aka the Knapsack constraint
@@ -266,7 +312,7 @@ class MosaicVaccineLazyILP(object):
             if res.solver.termination_condition != TerminationCondition.optimal:
                 raise RuntimeError('Could not solve problem - %s . Please check your settings' % res.Solution.status)
 
-            self.__solver.load_vars()
+            self.__solver.load_vars([self.model.x, self.model.y, self.model.Arcs])
             arcs = self.__extract_solution_from_model()
             if self.__verbosity:
                 print('Solution contains the following arcs:', arcs)
@@ -282,13 +328,15 @@ class MosaicVaccineLazyILP(object):
                     self._eliminate_subtours_mtz(arcs, tours)
                 else:
                     self._eliminate_subtours_dfj(arcs, tours)
+
                 if self.__verbosity:
                     print('========================')
                     print('Invalid solution returned!')
-                    print('Subtour elimination constraints updated (%d inserted so far)' % self.__subtour_constraints)
-                    print('')
-                    print('Restarting solver on the updated problem')
-                    print('========================')
+                    print('%s subtour elimination constraints updated (%d inserted so far)' % (
+                        self._subtour_elimination_method.upper(), self.__subtour_constraints
+                    ))
+                
+                self._reinitialize_model(tours)
             else:
                 break
 
@@ -298,6 +346,23 @@ class MosaicVaccineLazyILP(object):
         self.__result = tours[0]
         vaccine_peptides = [self.__peptides[j] for i, j in self.__result[:-1]]
         return self.__result, vaccine_peptides
+
+    def _reinitialize_model(self, tours):    
+        ''' re-initializes the model with a new feasible solution
+            first, the current (invalid) solution is erased
+            then, a new solution is generated and inserted
+        '''
+
+        for tour in tours:
+            for u, v in tour:
+                self.model.x[u, v] = self.model.y[u] = 0
+        
+        new_peptides, new_arcs = self._find_initial_solution()
+        for u, v in new_arcs:
+            self.model.x[u, v] = self.model.y[u] = 1
+        
+        self.__solver.update_var(self.model.x)
+        self.__solver.update_var(self.model.y)
 
     def _eliminate_subtours_dfj(self, arcs, tours):
         ''' adds DFJ subtour elimination constraints

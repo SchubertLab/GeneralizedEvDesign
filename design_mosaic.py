@@ -72,7 +72,7 @@ def get_solver(solver, verbose, max_epitopes, max_aminoacids):
 
 
 @click.command()
-@click.argument('input-file', type=click.Path('r'), help='Fasta file with the genome to match')
+@click.argument('input-file', type=click.Path('r'))
 @click.argument('solver', type=click.Choice([
     'gcb',      # Generalized cost benefit heuristic
     'dfj',      # ILP solver with Dantzig-Fulkerson-Johnson subtour elimination constraints added lazily

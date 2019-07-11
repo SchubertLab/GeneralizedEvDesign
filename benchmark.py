@@ -15,19 +15,12 @@ def cli():
 
 @cli.command()
 def analyze_results():
-    def do_plots(summary_df, res):
+    def do_plots(summary_df):
         sns.set()
 
         for col, marker, color in zip(summary_df.columns, 'o^s', '012'):
-            peptides, time = summary_df[col].dropna().reset_index().values.T
-
-            test_xs = np.linspace(300, 2700, 100)
-            test_ys = res['time_sd'] * (res[col]['cc'] + res[col]['aa'] * np.exp(
-                res[col]['bb'] * (test_xs - res['peptides_mean']) / res['peptides_sd']
-             ))
-
-            plt.plot(peptides, time, 'C%s%s' % (color, marker))
-            plt.plot(test_xs, test_ys, label=col)
+            peptides, _, time = summary_df[col].dropna().reset_index().values.T
+            plt.plot(peptides, time, 'C%s%s' % (color, marker), label=' '.join(col))
 
         plt.legend()
         plt.xlabel('Candidate Peptides')
@@ -36,61 +29,9 @@ def analyze_results():
         plt.tight_layout()
         plt.savefig('./dev/benchmark.png')
 
-    def exponential_fit(summary_df):
-        peptides_mean = summary_df.index.values.mean()
-        peptides_sd = summary_df.index.values.std()
-        all_times = summary_df.values.ravel()
-        time_sd = all_times[~np.isnan(all_times)].std()
-
-        with pm.Model() as model:
-            for column in summary_df.columns:
-                name = '_'.join(column)
-
-                peptides, time = summary_df[column].dropna().reset_index().values.T
-
-                data_xs = (peptides - peptides_mean) / peptides_sd
-                data_ys = time / time_sd
-
-                alpha = pm.Gamma('%s_aa' % name, 3, 2)
-                beta = pm.Gamma('%s_bb' % name, 3, 2)
-                gamma = pm.Normal('%s_cc' % name, 0, 1)
-
-                zs = pm.Deterministic('%s_zs' % name, gamma + alpha * pm.math.exp(beta * data_xs))
-                ys = pm.Normal('%s_ys' % name, zs, pm.InverseGamma('%s_ee_sd' % name, 5, 5),
-                               observed=data_ys)
-
-            trace = pm.sample(1000, nuts_kwargs={'target_accept': 0.99}, tune=1000)
-
-        fit_results = {
-            'peptides_mean': peptides_mean,
-            'peptides_sd': peptides_sd,
-            'time_sd': time_sd,
-        }
-
-        for column in summary_df.columns:
-            name = '_'.join(column)
-            fit_results[column] = {
-                'aa': trace['%s_aa' % name].mean(),
-                'aa_sd': trace['%s_aa' % name].std(),
-                'bb': trace['%s_bb' % name].mean(),
-                'bb_sd': trace['%s_bb' % name].std(),
-                'cc': trace['%s_cc' % name].mean(),
-                'cc_sd': trace['%s_cc' % name].std(),
-            }
-
-        return fit_results
-    
     df = pd.read_csv('./dev/benchmark.csv')
-    df['total_minutes'] = df['total'] / 60.0
-    # here I group by peptides, so there is no need to deal with repeats since it's unlikely
-    # two runs have the same number of peptides. and if that happens we just take the mean, so no big deal
-    summary_df = df.pivot_table('total_minutes', 'peptides', ['method', 'constraints'])
-    fit_results = exponential_fit(summary_df)
-    for col in summary_df.columns:
-        print(' '.join(col), ':', 'alpha = %.2f(%.2f) - beta = %.2f(%.2f)' % (
-            fit_results[col]['aa'], fit_results[col]['aa_sd'],
-            fit_results[col]['bb'], fit_results[col]['bb_sd'],
-        ))
+    df['total'] = df['total'] / 60.0
+    summary_df = df.pivot_table('total', ['peptides', 'repeat'], ['method', 'constraints'])
 
     try:
         import matplotlib.pyplot as plt
@@ -98,7 +39,7 @@ def analyze_results():
     except Exception as exc:
         print('Cannot import matplotlib or seaborn, will not produce plots! Error is:', exc)
     else:
-        do_plots(summary_df, fit_results)
+        do_plots(summary_df)
 
 
 @cli.command()

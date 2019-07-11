@@ -57,6 +57,8 @@ class MosaicVaccineILP(object):
 
         self.__process_parameters()
 
+        self.__arc_cost = generate_overlap_graph(self.__peptides[1:])
+
         self.build_model()
 
     def __process_parameters(self):
@@ -151,74 +153,55 @@ class MosaicVaccineILP(object):
         return {a.name: a.prob for a in alleles}
     
     def build_model(self):
+        if self.__verbosity:
+            print('Building model...')
         self.model = aml.ConcreteModel()
         self.__build_model_sets()
         self.__build_model_params()
         self.__build_model_variables()
 
         self.__build_model_constraint_connectivity()
-        self.__build_model_constraint_equality()
         self.__build_model_constraint_length()
-        self.__build_model_constraint_optionals()
         self.__build_model_constraint_subtour_elimination()
-
+        #self.__build_model_optionals()
+        
         self.__build_model_objective()
-    
+
+        if self.__verbosity:
+            print('Model built!')
+
     def __build_model_params(self):
-        arc_cost = generate_overlap_graph(self.__peptides[1:])
         self.model.i         = aml.Param(self.model.Nodes, initialize=lambda model, i: self.__immunogenicities[i])
-        self.model.d         = aml.Param(self.model.Arcs, initialize=lambda model, i, j: arc_cost[i][j])
+        self.model.d         = aml.Param(self.model.Arcs, initialize=lambda model, i, j: self.__arc_cost[i][j])
         self.model.k         = aml.Param(initialize=self.__max_vaccine_epitopes, within=aml.PositiveIntegers, mutable=True)
-        self.model.c         = aml.Param(self.model.Nodes, initialize=lambda model, e: self.__conservations[e], mutable=True)
         self.model.TMAX      = aml.Param(initialize=self.__max_vaccine_aminoacids, within=aml.PositiveIntegers, mutable=True)
-        self.model.t_allele  = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
-        self.model.t_var     = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
-        self.model.t_c       = aml.Param(initialize=0.0, within=aml.NonNegativeReals, mutable=True)
     
     def __build_model_sets(self):
         self.model.Nodes     = aml.RangeSet(0, len(self.__peptides) - 1)
-        self.model.Q         = aml.Set(initialize=self.__variations)
-        self.model.A         = aml.Set(initialize=self.__allele_bindings.keys())
-        self.model.E_var     = aml.Set(self.model.Q, initialize=lambda mode, v: self.__epitope_variations[v])
-        self.model.A_I       = aml.Set(self.model.A, initialize=lambda model, allele: self.__allele_bindings[allele])
         self.model.Arcs      = self.model.Nodes * self.model.Nodes # FIXME dont know if this includes self references as well....
 
     def __build_model_variables(self):
         self.model.x         = aml.Var(self.model.Arcs, domain=aml.Binary, bounds=(0, 1), initialize=0)
-        self.model.z         = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
-        self.model.y         = aml.Var(self.model.Nodes, domain=aml.Binary, initialize=0)
-        self.model.w         = aml.Var(self.model.Q, domain=aml.Binary, initialize=0)
+        self.model.y         = aml.Var(self.model.Nodes, domain=aml.Binary,initialize=0)
         self.model.u         = aml.Var(self.model.Nodes - set([0]), bounds=(1.0, len(self.__peptides) - 1))
 
     def __build_model_objective(self):
-        self.model.Obj = aml.Objective(rule=lambda model: sum(model.y[i] * model.i[i] for i in model.Nodes),
-                                       sense=aml.maximize)
+        self.model.Obj       = aml.Objective(rule=lambda model: sum(model.y[i] * model.i[i] for i in model.Nodes),
+                                             sense=aml.maximize)
 
     def __build_model_constraint_connectivity(self):
-        ''' select at most one incoming and one outgoing connection from every node
-            selected nodes must have (at least one) outgoing connection
-            self-connections are not allowed
+        ''' number of selected incoming connections must equal number of selected outgoing connections
+            any selected node must have exactly one outgoing connection (so, implicitly, exactly one incoming as well)
         '''
-        self.model.ConnOut = aml.Constraint(self.model.Nodes, rule=lambda model, node:
-            (0.0, sum(model.x[node, j] for j in model.Nodes if j != node), 1.0))
-        self.model.ConnIn = aml.Constraint(self.model.Nodes, rule=lambda model, node:
-            (0.0, sum(model.x[i, node] for i in model.Nodes if i != node), 1.0))
-        self.model.IsNodeSelected = aml.Constraint(self.model.Nodes, rule=lambda model, n:
-            sum(model.x[n, m] for m in model.Nodes if n != m) >= model.y[n])
-        self.model.NoSelfConns = aml.Constraint(self.model.Nodes, rule=lambda model, node:
-            (0.0, model.x[node, node], 0.0))
-    
-    def __build_model_constraint_equality(self):
-        ''' number of selected incoming connections equals number of selected outgoing connections
-        '''
-        def Equal_rule(model, node):
-            aa = sum(model.x[node, j] for j in model.Nodes if j != node)
-            bb = sum(model.x[i, node] for i in model.Nodes if i != node)
-            if isinstance(aa, SumExpression) or isinstance(bb, SumExpression):
-                return aa == bb
-            else:
-                return aml.Constraint.Feasible
-        self.model.Equal = aml.Constraint(self.model.Nodes, rule=Equal_rule)
+        def InsideOutRule(model, node):
+            outgoing = sum(model.x[node, j] for j in model.Nodes if j != node)
+            incoming = sum(model.x[i, node] for i in model.Nodes if i != node)
+            return outgoing == incoming
+
+        self.model.IncomingOutgoing = aml.Constraint(self.model.Nodes, rule=InsideOutRule)
+        self.model.Selection = aml.Constraint(self.model.Nodes, rule=lambda model, node: (
+            sum(model.x[node, i] + model.x[i, node] for i in model.Nodes if i != node) == 2 * model.y[node]
+        ))
     
     def __build_model_constraint_length(self):  # aka the Knapsack constraint
         ''' do not exceed desired number of aminoacids and peptides in the vaccine 
@@ -228,7 +211,20 @@ class MosaicVaccineILP(object):
         self.model.maxNofEpitopes = aml.Constraint(rule=lambda model: (
             None, sum(model.y[n] for n in model.Nodes), model.k))
 
-    def __build_model_constraint_optionals(self):
+    def __build_model_optionals(self):
+        self.model.c         = aml.Param(self.model.Nodes, initialize=lambda model, e: self.__conservations[e], mutable=True)
+        self.model.t_allele  = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
+        self.model.t_var     = aml.Param(initialize=0, within=aml.NonNegativeIntegers, mutable=True)
+        self.model.t_c       = aml.Param(initialize=0.0, within=aml.NonNegativeReals, mutable=True)
+
+        self.model.Q         = aml.Set(initialize=self.__variations)
+        self.model.A         = aml.Set(initialize=self.__allele_bindings.keys())
+        self.model.E_var     = aml.Set(self.model.Q, initialize=lambda mode, v: self.__epitope_variations[v])
+        self.model.A_I       = aml.Set(self.model.A, initialize=lambda model, allele: self.__allele_bindings[allele])
+
+        self.model.z         = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
+        self.model.w         = aml.Var(self.model.Q, domain=aml.Binary, initialize=0)
+
         self.model.IsAlleleCovConst = aml.Constraint(self.model.A, rule=lambda model, allele:
             sum(model.y[e] for e in model.A_I[allele]) >= model.z[allele])
         self.model.MinAlleleCovConst = aml.Constraint(rule=lambda model:

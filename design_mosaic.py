@@ -46,14 +46,14 @@ def get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshol
             randomize = randomize / 100
         if bindings_path:
             print('WARNING: randomize and binding affinities both specified! The specified affinities will not')
-            print('         be overwritten, but randominze will not work as intended if the affinities are not')
-            print('         suitably randomized (i.e. uniformly between 0 and 1).')
-            print()
-            print('         To generate randomized affinities, run once with randomize and *without* binding affinities.')
-            print('         Randomized affinities will be generated and stored in "./resources/bindings.csv"')
-            print('         and can be loaded in subsequent runs.')
-            print()
-            print('         If you already did this, this warning is safe to ignore.')
+            print('WARNING: be overwritten, but randominze will not work as intended if the affinities are not')
+            print('WARNING: suitably randomized (i.e. uniformly between 0 and 1).')
+            print('WARNING: ')
+            print('WARNING: To generate randomized affinities, run once with randomize and *without* binding affinities.')
+            print('WARNING: Randomized affinities will be generated and stored in "./resources/bindings.csv"')
+            print('WARNING: and can be loaded in subsequent runs.')
+            print('WARNING: ')
+            print('WARNING: If you already did this, this warning is safe to ignore.')
             print()
 
         # chosen so that 100*randomize % of peptides have at least one allele

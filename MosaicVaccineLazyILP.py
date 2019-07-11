@@ -205,7 +205,6 @@ class MosaicVaccineLazyILP(object):
         self.__build_model_variables()
 
         self.__build_model_constraint_connectivity()
-        self.__build_model_constraint_equality()
         self.__build_model_constraint_length()
         #self.__build_model_optionals()
         
@@ -234,32 +233,22 @@ class MosaicVaccineLazyILP(object):
             self.model.u     = aml.Var(self.model.Nodes - set([0]), bounds=(1.0, len(self.__peptides) - 1))
 
     def __build_model_objective(self):
-        self.model.Obj = aml.Objective(rule=lambda model: sum(model.y[i] * model.i[i] for i in model.Nodes),
-                                       sense=aml.maximize)
+        self.model.Obj       = aml.Objective(rule=lambda model: sum(model.y[i] * model.i[i] for i in model.Nodes),
+                                             sense=aml.maximize)
 
     def __build_model_constraint_connectivity(self):
-        ''' select at most one incoming and one outgoing connection from every node
-            selected nodes must have (at least one) outgoing connection
-        '''
-        self.model.ConnOut = aml.Constraint(self.model.Nodes, rule=lambda model, node:
-            (0.0, sum(model.x[node, j] for j in model.Nodes if j != node), 1.0))
-        self.model.ConnIn = aml.Constraint(self.model.Nodes, rule=lambda model, node:
-            (0.0, sum(model.x[i, node] for i in model.Nodes if i != node), 1.0))
-        self.model.IsNodeSelected = aml.Constraint(self.model.Nodes, rule=lambda model, node:
-            sum(model.x[node, i] for i in model.Nodes if i != node) >= model.y[node])
-    
-    def __build_model_constraint_equality(self):
         ''' number of selected incoming connections must equal number of selected outgoing connections
+            any selected node must have exactly one outgoing connection (so, implicitly, exactly one incoming as well)
         '''
-        def Equal_rule(model, node):
-            aa = sum(model.x[node, j] for j in model.Nodes if j != node)
-            bb = sum(model.x[i, node] for i in model.Nodes if i != node)
-            if isinstance(aa, SumExpression) or isinstance(bb, SumExpression):
-                return aa == bb
-            else:
-                return aml.Constraint.Feasible
+        def InsideOutRule(model, node):
+            outgoing = sum(model.x[node, j] for j in model.Nodes if j != node)
+            incoming = sum(model.x[i, node] for i in model.Nodes if i != node)
+            return outgoing == incoming
 
-        self.model.Equal = aml.Constraint(self.model.Nodes, rule=Equal_rule)
+        self.model.IncomingOutgoing = aml.Constraint(self.model.Nodes, rule=InsideOutRule)
+        self.model.Selection = aml.Constraint(self.model.Nodes, rule=lambda model, node: (
+            sum(model.x[node, i] + model.x[i, node] for i in model.Nodes if i != node) == 2 * model.y[node]
+        ))
     
     def __build_model_constraint_length(self):  # aka the Knapsack constraint
         ''' do not exceed desired number of aminoacids and peptides in the vaccine 
@@ -410,7 +399,7 @@ class MosaicVaccineLazyILP(object):
     def _extract_tours_from_arcs(arcs):
         ''' given a dictionary of arcs, returns a list of tours, where every tour is a list of arcs
         '''
-        assert set(arcs.keys()) == set(arcs.values())
+        assert set(arcs.keys()) == set(arcs.values()), 'arcs do not form a set of tours: %r' % arcs
         not_assigned, assigned = set(arcs.keys()), set()
 
         tours = []

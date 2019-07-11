@@ -1,18 +1,17 @@
 from __future__ import print_function
+import pandas as pd
 import numpy as np
 from builtins import map
 
 import time
-from Fred2.Core.Allele import Allele
 from Fred2.Core.Peptide import Peptide
-from Fred2.EpitopePrediction import EpitopePredictorFactory
 from MosaicVaccineILP import MosaicVaccineILP
 from MosaicVaccineLazyILP import MosaicVaccineLazyILP
 from MosaicVaccineGreedy import MosaicVaccineGreedy
-from Fred2.Core import Protein, Allele
+from Fred2.Core import Protein, Allele, Peptide
 from Fred2.Core import generate_peptides_from_proteins
 from Fred2.IO import FileReader
-from Fred2.EpitopePrediction import EpitopePredictorFactory
+from Fred2.EpitopePrediction import EpitopePredictorFactory, EpitopePredictionResult
 from Fred2.EpitopeSelection.PopCover import PopCover
 from Fred2.Utility import generate_overlap_graph
 import click
@@ -31,23 +30,46 @@ THRESHOLD_PRESETS = [  # counts based on hivgen.fasta
 ]
 
 
-def get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshold):
-    bindings = EpitopePredictorFactory('BIMAS').predict(peptides, alleles)
+def get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshold, bindings_path):
+    if not bindings_path:
+        bindings = EpitopePredictorFactory('BIMAS').predict(peptides, alleles)
+    else:
+        bindings = pd.read_csv(bindings_path)
+        bindings['Seq'] = list(map(Peptide, bindings['Seq']))  # we don't have source protein
+        bindings = bindings.set_index(['Seq', 'Method'])
+        bindings.columns = list(map(Allele, bindings.columns))
+        bindings = EpitopePredictionResult(bindings)
+        print('Binding affinities loaded from', bindings_path)
+
     if randomize > 0:
         if randomize > 1:
             randomize = randomize / 100
-        thresh = {}
+        if bindings_path:
+            print('WARNING: randomize and binding affinities both specified! The specified affinities will not')
+            print('         be overwritten, but randominze will not work as intended if the affinities are not')
+            print('         suitably randomized (i.e. uniformly between 0 and 1).')
+            print()
+            print('         To generate randomized affinities, run once with randomize and *without* binding affinities.')
+            print('         Randomized affinities will be generated and stored in "./resources/bindings.csv"')
+            print('         and can be loaded in subsequent runs.')
+            print()
+            print('         If you already did this, this warning is safe to ignore.')
+            print()
 
         # chosen so that 100*randomize % of peptides have at least one allele
         # with larger binding strength, assuming that these are uniform(0, 1)
         tt = (1 - randomize)**(1.0 / len(alleles))
+        thresh = {}
         for col in bindings.columns:
-            bindings[col] = np.random.random(size=len(bindings))
+            if not bindings_path:
+                bindings[col] = np.random.random(size=len(bindings))
             thresh[col.name] = tt
     else:
         thresh = THRESHOLD_PRESETS[threshold] if threshold < len(THRESHOLD_PRESETS) else THRESHOLD_PRESETS[-1]
 
-    bindings.to_csv('resources/bindings.csv')
+    if not bindings_path:
+        bindings.to_csv('resources/bindings.csv')
+
     return bindings, thresh
 
 
@@ -82,20 +104,23 @@ def get_solver(solver, verbose, max_epitopes, max_aminoacids):
     'mtz-l',    # ILP solver with Miller-Tucker-Zemlin subtour elimination constraints added lazily
     'mtz-g',    # ILP solver with all Miller-Tucker-Zemlin suboutr elimination constraints added at the beginning
 ]))
+@click.option('--binding-affinities', '-b', type=click.Path('r'), help='Pre-computed binding HLA-peptide binding affinities')
 @click.option('--max-aminoacids', '-a', default=15, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=999, help='Maximum length of the vaccine in epitopes')
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 @click.option('--threshold', '-t', default=0, help='Select one of the threshdld presets (0-7)')
 @click.option('--measure-time', '-T', is_flag=True, help='Print the total time at the end') 
 @click.option('--randomize', '-r', default=-1.0, help='Randomly assign affinities and select a given portion of epitopes')
-def main(input_file, solver, max_aminoacids, max_epitopes, verbose, threshold, measure_time, randomize):
+def main(input_file, solver, max_aminoacids, max_epitopes, verbose, threshold, measure_time, randomize, binding_affinities):
     program_start_time = time.time()
 
     alleles = [Allele('HLA-A*01:01'), Allele('HLA-B*07:02'), Allele('HLA-C*03:01')]
     prot_seqs = FileReader.read_fasta(input_file, in_type=Protein)
     peptides = list(generate_peptides_from_proteins(prot_seqs, 9))
     print(len(peptides), 'peptides generated')
-    bindings, thresh = get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshold)
+
+    bindings, thresh = get_binding_affinities_and_thresholds(peptides, alleles, randomize,
+                                                             threshold, binding_affinities)
 
     if verbose:
         print('Threshold and binding affinity distribution per allele')

@@ -18,21 +18,53 @@ import click
 import Fred2
 
 
-THRESHOLD_PRESETS = [  # counts based on hivgen.fasta
-    {'A*01:01': 0.1,  'B*07:02': 1.0, 'C*03:01': 0.3},   # 11 epitopes
-    {'A*01:01': 100,  'B*07:02': 100, 'C*03:01': 0.23},  # 528 epitopes
-    {'A*01:01': 0.04, 'B*07:02': 100, 'C*03:01': 100},   # 666 epitopes
-    {'A*01:01': 100,  'B*07:02': 0.8, 'C*03:01': 100},   # 817 epitopes
-    {'A*01:01': 0.04, 'B*07:02': 100, 'C*03:01': 0.23},  # 1194 epitopes
-    {'A*01:01': 0.04, 'B*07:02': 0.8, 'C*03:01': 100},   # 1483 epitopes
-    {'A*01:01': 0.04, 'B*07:02': 0.8, 'C*03:01': 0.23},  # 1841 epitopes
-    {'A*01:01': 0.01, 'B*07:02': 0.01, 'C*03:01': 0.01}, # 8463 epitopes
-]
+def get_alleles_and_thresholds():
+    return {     # According to Table 1 in Toussaint et al. (2011)
+        Allele('A*01:01',  4.498520 / 100.0):   0.08710, 
+        Allele('A*02:01', 10.693200 / 100.0):   1.25720, 
+        Allele('A*02:05',  0.884956 / 100.0):   0.41790, 
+        Allele('A*03:01',  3.687320 / 100.0):   0.05527, 
+        Allele('A*11:01',  7.522120 / 100.0):   0.04356, 
+        Allele('A*24:02', 12.905600 / 100.0):   1.15830, 
+        Allele('A*31:01',  2.433630 / 100.0):   0.09604, 
+        Allele('A*68:01',  1.769910 / 100.0):   2.39910, 
+        Allele('B*04:01',  1.548670 / 100.0):   5.22380, 
+        Allele('B*07:02',  3.613570 / 100.0):   1.62320, 
+        Allele('B*08:01',  2.949850 / 100.0):   0.07150, 
+        Allele('B*15:01',  2.064900 / 100.0):   0.21666, 
+        Allele('B*27:02',  0.147493 / 100.0):  50.04300, 
+        Allele('B*27:05',  1.106190 / 100.0): 163.86800, 
+        Allele('B*35:01',  3.244840 / 100.0):   3.20170, 
+        Allele('B*37:01',  0.442478 / 100.0):   1.42390, 
+        Allele('B*38:01',  0.663717 / 100.0):   7.92910, 
+        Allele('B*39:01',  1.769910 / 100.0):   4.73410, 
+        Allele('B*40:01',  5.309730 / 100.0):  21.17820, 
+        Allele('B*40:06',  0.516224 / 100.0):   1.04370, 
+        Allele('B*44:03',  2.212390 / 100.0):   6.20900, 
+        Allele('B*51:01',  3.244840 / 100.0):  39.20670, 
+        Allele('B*51:02',  0.221239 / 100.0): 155.05000, 
+        Allele('B*52:01',  0.884956 / 100.0):   8.58850, 
+        Allele('B*58:01',  2.654870 / 100.0):  13.35620, 
+        Allele('C*04:01',  8.259590 / 100.0):   4.06100, 
+        Allele('C*06:02',  5.088500 / 100.0):   2.16860, 
+        Allele('C*07:02',  9.660770 / 100.0):   2.18310, 
+    }
 
 
-def get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshold, bindings_path):
+def get_peptides(input_file):
+    # TODO eventually we will load multiple genomes, align them, and do some more stuff
+    prot_seqs = FileReader.read_fasta(input_file, in_type=Protein)
+    peptides = list(generate_peptides_from_proteins(prot_seqs, 9))
+    return peptides
+
+
+def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
+    ''' can either provide realistic binding affinities and thresholds, or
+        use randomized values (for benchmarking purposes)
+    '''
+    allele_thresholds = get_alleles_and_thresholds()
     if not bindings_path:
-        bindings = EpitopePredictorFactory('BIMAS').predict(peptides, alleles)
+        bindings = EpitopePredictorFactory('BIMAS').predict(peptides, allele_thresholds.keys())
     else:
         bindings = pd.read_csv(bindings_path)
         bindings['Seq'] = list(map(Peptide, bindings['Seq']))  # we don't have source protein
@@ -58,14 +90,14 @@ def get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshol
 
         # chosen so that 100*randomize % of peptides have at least one allele
         # with larger binding strength, assuming that these are uniform(0, 1)
-        tt = (1 - randomize)**(1.0 / len(alleles))
+        tt = (1 - randomize)**(1.0 / len(allele_thresholds))
         thresh = {}
         for col in bindings.columns:
             if not bindings_path:
                 bindings[col] = np.random.random(size=len(bindings))
-            thresh[col.name] = tt
+            thresh[col] = tt
     else:
-        thresh = THRESHOLD_PRESETS[threshold] if threshold < len(THRESHOLD_PRESETS) else THRESHOLD_PRESETS[-1]
+        thresh = allele_thresholds
 
     if not bindings_path:
         bindings.to_csv('resources/bindings.csv')
@@ -73,15 +105,12 @@ def get_binding_affinities_and_thresholds(peptides, alleles, randomize, threshol
     return bindings, thresh
 
 
-def get_solver(solver, verbose, max_epitopes, max_aminoacids):
-    solver_kwargs = {
-        'verbosity': int(verbose),
-        'max_vaccine_epitopes': max_epitopes,
-        'max_vaccine_aminoacids': max_aminoacids,
-    }
+def get_solver_class(solver):
+    solver_kwargs = {}
 
     if solver == 'gcb':
         solver_cls = MosaicVaccineGreedy
+        raise NotImplementedError()
     elif solver == 'dfj':
         solver_cls = MosaicVaccineLazyILP
         solver_kwargs['subtour_elimination'] = 'dfj'
@@ -106,34 +135,35 @@ def get_solver(solver, verbose, max_epitopes, max_aminoacids):
 ]))
 @click.option('--binding-affinities', '-b', type=click.Path('r'), help='Pre-computed binding HLA-peptide binding affinities')
 @click.option('--max-aminoacids', '-a', default=15, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', '-e', default=999, help='Maximum length of the vaccine in epitopes')
+@click.option('--max-epitopes', '-e', default=0, help='Maximum length of the vaccine in epitopes')
+@click.option('--min-alleles', '-A', default=0, help='Minimum number of alleles to cover with the vaccine')
+@click.option('--min-antigens', '-g', default=0, help='Minimum antigens to cover with the vaccine')
+@click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
-@click.option('--threshold', '-t', default=0, help='Select one of the threshdld presets (0-7)')
-@click.option('--measure-time', '-T', is_flag=True, help='Print the total time at the end') 
-@click.option('--randomize', '-r', default=-1.0, help='Randomly assign affinities and select a given portion of epitopes')
-def main(input_file, solver, max_aminoacids, max_epitopes, verbose, threshold, measure_time, randomize, binding_affinities):
+@click.option('--measure-time', '-T', is_flag=True, help='Print the time spent on each stage at the end') 
+@click.option('--randomize', '-r', default=0.0, help='Randomly assign affinities and select a given portion of epitopes')
+def main(input_file, solver, verbose, measure_time, randomize, binding_affinities,
+         max_aminoacids, max_epitopes, min_alleles, min_antigens, min_conservation):
+         
     program_start_time = time.time()
 
-    alleles = [Allele('HLA-A*01:01'), Allele('HLA-B*07:02'), Allele('HLA-C*03:01')]
-    prot_seqs = FileReader.read_fasta(input_file, in_type=Protein)
-    peptides = list(generate_peptides_from_proteins(prot_seqs, 9))
+    peptides = get_peptides(input_file)
     print(len(peptides), 'peptides generated')
+    bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize, binding_affinities)
 
-    bindings, thresh = get_binding_affinities_and_thresholds(peptides, alleles, randomize,
-                                                             threshold, binding_affinities)
-
-    if verbose:
-        print('Threshold and binding affinity distribution per allele')
-        for al in alleles:
-            print('   ', al, thresh[al.name])
-            print('   ', np.percentile(bindings[al], [0, 25, 50, 75, 90, 95, 98, 99, 100]))
-
-    solver_cls, solver_kwargs = get_solver(solver, verbose, max_epitopes, max_aminoacids)
+    solver_cls, solver_kwargs = get_solver_class(solver)
     if verbose:
         print('Using solver', solver_cls)
 
     solver_creation_time = time.time()
-    solver = solver_cls(bindings, thresh, **solver_kwargs)
+    solver = solver_cls(
+        bindings, thresh, max_vaccine_aminoacids=max_aminoacids, max_vaccine_epitopes=max_epitopes,
+        min_allele_coverage=min_alleles, min_antigen_coverage=min_antigens,
+        min_epitope_conservation=min_conservation, verbosity=verbose, **solver_kwargs
+    )
+
+    solver_build_time = time.time()
+    solver.build_model()
     
     solver_start_time = time.time()
     tour, peptides = solver.solve()
@@ -145,8 +175,9 @@ def main(input_file, solver, max_aminoacids, max_epitopes, verbose, threshold, m
     if measure_time:
         print('==== Stopwatch')
         print('Total time           : %.2f s' % (solver_end_time - program_start_time))
-        print('Pre-processing time  : %.2f s' % (solver_creation_time - program_start_time))
-        print('Model creation time  : %.2f s' % (solver_start_time - solver_creation_time))
+        print('Inputs preparation   : %.2f s' % (solver_creation_time - program_start_time))
+        print('Pre-processing       : %.2f s' % (solver_build_time - solver_creation_time))
+        print('Model creation time  : %.2f s' % (solver_start_time - solver_build_time))
         print('Solving time         : %.2f s' % (solver_end_time - solver_start_time))
 
 

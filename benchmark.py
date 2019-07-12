@@ -20,18 +20,18 @@ def analyze_results():
 
         for col, marker, color in zip(summary_df.columns, 'o^s', '012'):
             peptides, _, time = summary_df[col].dropna().reset_index().values.T
-            plt.plot(peptides, time, 'C%s%s' % (color, marker), label=' '.join(col))
+            plt.plot(peptides, time, 'C%s%s' % (color, marker), label=col)
 
         plt.legend()
         plt.xlabel('Candidate Peptides')
         plt.ylabel('Time (min.)')
-        plt.title('Total Time to Design a 35 Aminoacids Vaccine')
+        plt.title('Total Time to Design a 45 Aminoacids Vaccine')
         plt.tight_layout()
         plt.savefig('./dev/benchmark.png')
 
     df = pd.read_csv('./dev/benchmark.csv')
     df['total'] = df['total'] / 60.0
-    summary_df = df.pivot_table('total', ['peptides', 'repeat'], ['method', 'constraints'])
+    summary_df = df.pivot_table('total', ['peptides', 'repeat'], 'constraints')
 
     try:
         import matplotlib.pyplot as plt
@@ -49,17 +49,16 @@ def process_results():
             return None
 
         parts = fname[:-4].split('-')
-        if len(parts) != 6:
+        if len(parts) != 5:
             return None
         
-        if parts[2] != 'random' or parts[4] != 'repeat':
+        if parts[1] != 'random' or parts[3] != 'repeat':
             return None
         
         return {
-            'constraints': parts[0],    # dfj or mtz
-            'method': parts[1],         # lazy or greedy
-            'size': parts[3],
-            'repeat': parts[5], 
+            'constraints': parts[0],    # mtz_l, mtz_g, dfj
+            'size': parts[2],
+            'repeat': parts[4], 
         }
     
     def parse_log_file(fname):
@@ -98,6 +97,8 @@ def process_results():
 
         run_info.update(stopwatch)
         results.append(run_info)
+    
+    print(len(results), 'log files analyzed')
 
     df = pd.DataFrame(results)
     df.to_csv('./dev/benchmark.csv', index=False)
@@ -106,8 +107,9 @@ def process_results():
 @cli.command()
 def run_benchmark():
     def get_new_file_name(method, size):
+        method = method.replace('-', '_')
         trials = [
-            int(fname[:-4].split('-')[5])
+            int(fname[:-4].split('-')[4])
             for fname in os.listdir('./dev')
             if fname.startswith('%s-random-%d-repeat-' % (method, size))
         ]
@@ -115,22 +117,14 @@ def run_benchmark():
         index = (max(trials) + 1) if trials else 0
         return '%s-random-%d-repeat-%d.log' % (method, size, index)
 
-    base_args = [
-        'python', 'mosaic_test.py', 'resources/hivgen.fasta',
-        '-v', '-a', '35', '-T'
-    ]
+    base_args = ['python', 'design_mosaic.py', 'resources/hivgen.fasta',]
+    extra_args = ['-v', '-a', '45', '-T']
 
     while True:
         size = random.randint(5, 31)
-        lazy = random.choice([None, 'mtz', 'dfj'])
+        method = random.choice(['mtz-g', 'mtz-l', 'dfj'])
 
-        args = base_args + ['-r', str(size)]
-        if lazy is not None:
-            args.extend(['-l', lazy])
-            method = lazy + '-lazy'
-        else:
-            method = 'mtz-greedy'
-        
+        args = base_args + [method, '-r', str(size)] + extra_args
         fname = './dev/' + get_new_file_name(method, size)
         print(' '.join(args), '>', fname)
 

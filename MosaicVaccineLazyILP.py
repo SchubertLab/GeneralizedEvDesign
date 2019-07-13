@@ -102,7 +102,7 @@ class MosaicVaccineLazyILP:
             immunogen = 0
             for allele, bind_affinity in itr.izip(self._alleles, tup[1:]):
                 if method in ['smm', 'smmpmbec', 'arb', 'comblibsidney']:
-                    # log-transform binding strenghts and thresholds
+                    # log-transform binding strenghts and thresholds and clip in [0-1]
                     bind_affinity = min(1., max(0.0, 1.0 - math.log(bind_affinity, 50000)))
                     if allele in self._thresh:
                         bind_thr = min(1., max(0.0, 1.0 - math.log(self._thresh.get(allele), 50000)))
@@ -123,7 +123,8 @@ class MosaicVaccineLazyILP:
                 self._all_genes.add(prot.gene_id)
                 self._gene_to_epitope.setdefault(prot.gene_id, set()).add(i)
 
-        # calculate conservation
+        # calculate epitope conservation, i.e. number of proteins that contain it over number of genes
+        # TODO this does not make any sense ?!
         total = len(self._all_genes)
         self._conservations = {
             e: (v / total) if total > 0 else 1
@@ -131,8 +132,8 @@ class MosaicVaccineLazyILP:
         }
 
     def _fill_allele_probs(self, alleles):
-        #test if allele prob is set, if not set allele prob uniform
-        #if only partly set infer missing values (assuming uniformity of missing value)
+        # test if allele prob is set, if not set allele prob uniform
+        # if only partly set infer missing values (assuming uniformity of missing value)
         prob = []
         no_prob = []
         for a in alleles:
@@ -176,12 +177,12 @@ class MosaicVaccineLazyILP:
         solution_peptides, solution_arcs = [0], []
         aminoacids_length = total_immunogenicity = 0
         for i, pep in enumerate(sorted_by_immunogenicity):
-            if i >= self._max_vaccine_epitopes:
+            if self._max_vaccine_epitopes > 0 and i >= self._max_vaccine_epitopes:
                 break
             
             idx = self._pep_to_index[pep]
             arc_cost = self._arc_cost[solution_peptides[-1], idx]
-            if aminoacids_length + arc_cost > self._max_vaccine_aminoacids:
+            if self._max_vaccine_aminoacids > 0 and aminoacids_length + arc_cost > self._max_vaccine_aminoacids:
                 break
             
             aminoacids_length += arc_cost

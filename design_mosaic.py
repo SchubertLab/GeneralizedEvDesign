@@ -4,6 +4,7 @@ import numpy as np
 from builtins import map
 
 import time
+from collections import defaultdict
 from Fred2.Core.Peptide import Peptide
 from MosaicVaccineILP import MosaicVaccineILP
 from MosaicVaccineLazyILP import MosaicVaccineLazyILP
@@ -51,11 +52,82 @@ def get_alleles_and_thresholds():
     }
 
 
-def get_peptides(input_file):
-    # TODO eventually we will load multiple genomes, align them, and do some more stuff
-    prot_seqs = FileReader.read_fasta(input_file, in_type=Protein)
-    peptides = list(generate_peptides_from_proteins(prot_seqs, 9))
-    return peptides
+def compute_consensus_and_conservation(sequences):
+    # warning: removes non-aminoacids (e.g. gaps) from the consensus sequence
+    length = max(map(len, sequences))
+
+    consensus, conservation = [], []
+    for i in range(length):
+        freqs = defaultdict(int)
+        for p in sequences:
+            if i < len(p):
+                freqs[p[i]] += 1
+        
+        cons = None
+        for k, v in freqs.items():
+            if cons is None or v > cons[1]:
+                cons = k, v
+        
+        if cons[0].isalpha():
+            consensus.append(cons[0])
+            conservation.append(float(cons[1]) / len(sequences))
+    
+    return ''.join(consensus), conservation
+
+
+def get_peptides(input_file, min_conservation):
+    proteins = FileReader.read_fasta(input_file, in_type=Protein)
+    if len(proteins[0].transcript_id.split('.')) != 6:
+        return list(generate_peptides_from_proteins(proteins, 9))
+
+    # the following code is specific to HIV1_2017_aligned_sequences.fasta 's format
+    # we first group proteins by gene and subtype
+    proteins_by_subtype_and_gene = defaultdict(list)
+    for prot in proteins:
+        try:
+            subtype, country, strain1, strain2, accession, gene = prot.transcript_id.split('.')
+        except ValueError:
+            print('cannot parse', prot.transcript_id)
+            continue
+
+        prot.gene_id = gene
+        prot.transcript_id = accession
+        prot.vars = {
+            'subtype': subtype,
+            'country': country,
+            'strain1': strain1,
+            'strain2': strain2,
+            'accession': accession,
+            'gene': gene,
+        }
+
+        proteins_by_subtype_and_gene[(subtype, gene)].append(prot)
+
+    # then for each gene and subtype we compute the consensus sequence and aminoacid conservation
+    # and extract conserved peptides from the consensus sequence 
+    peptides = {}
+    for (subtype, gene), pros in proteins_by_subtype_and_gene.iteritems():
+        if len(pros) > 10:
+            print('Generating conserved consensus peptides for gene %s of subtype %s (%d proteins)' % (
+                gene, subtype, len(pros)
+            ))
+        else:
+            print('Not enough proteins (%d) to generate a reliable consensus for gene %s of subtype %s' % (
+                len(pros), gene, subtype
+            ))
+            continue
+
+        consensus, conservation = compute_consensus_and_conservation(pros)
+        protein = Protein(consensus, gene_id=gene, transcript_id='%s-%s' % (subtype, gene))
+        for i in xrange(len(consensus) - 8):
+            if all(c >= min_conservation for c in conservation[i:i + 9]):
+                seq = consensus[i:i + 9]
+                if seq not in peptides:
+                    peptides[seq] = Peptide(seq)
+                peptides[seq].proteins[protein.transcript_id] = protein
+                peptides[seq].proteinPos[protein.transcript_id].append(i)
+
+    return peptides.values()
 
 
 def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
@@ -144,10 +216,10 @@ def get_solver_class(solver):
 @click.option('--randomize', '-r', default=0.0, help='Randomly assign affinities and select a given portion of epitopes')
 def main(input_file, solver, verbose, measure_time, randomize, binding_affinities,
          max_aminoacids, max_epitopes, min_alleles, min_antigens, min_conservation):
-         
+
     program_start_time = time.time()
 
-    peptides = get_peptides(input_file)
+    peptides = get_peptides(input_file, min_conservation)
     print(len(peptides), 'peptides generated')
     bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize, binding_affinities)
 

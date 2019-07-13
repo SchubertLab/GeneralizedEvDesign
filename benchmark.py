@@ -117,7 +117,7 @@ def run_benchmark():
         index = (max(trials) + 1) if trials else 0
         return '%s-random-%d-repeat-%d.log' % (method, size, index)
 
-    base_args = ['python', 'design_mosaic.py', 'resources/hivgen.fasta',]
+    base_args = ['python', 'design_mosaic.py', 'resources/hiv1_sample.fasta',]
     extra_args = ['-v', '-a', '45', '-T']
 
     while True:

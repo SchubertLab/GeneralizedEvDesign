@@ -21,6 +21,7 @@ import Fred2
 
 def get_alleles_and_thresholds():
     return {     # According to Table 1 in Toussaint et al. (2011)
+        #                  population cov.  :   threshold
         Allele('A*01:01',  4.498520 / 100.0):   0.08710, 
         Allele('A*02:01', 10.693200 / 100.0):   1.25720, 
         Allele('A*02:05',  0.884956 / 100.0):   0.41790, 
@@ -207,9 +208,9 @@ def get_solver_class(solver):
 ]))
 @click.option('--binding-affinities', '-b', type=click.Path('r'), help='Pre-computed binding HLA-peptide binding affinities')
 @click.option('--max-aminoacids', '-a', default=15, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', '-e', default=0, help='Maximum length of the vaccine in epitopes')
-@click.option('--min-alleles', '-A', default=0, help='Minimum number of alleles to cover with the vaccine')
-@click.option('--min-antigens', '-g', default=0, help='Minimum antigens to cover with the vaccine')
+@click.option('--max-epitopes', '-e', default=0.0, help='Maximum length of the vaccine in epitopes')
+@click.option('--min-alleles', '-A', default=0.0, help='Minimum number of alleles to cover with the vaccine')
+@click.option('--min-antigens', '-g', default=0.0, help='Minimum antigens to cover with the vaccine')
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 @click.option('--measure-time', '-T', is_flag=True, help='Print the time spent on each stage at the end') 

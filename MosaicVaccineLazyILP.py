@@ -46,6 +46,8 @@ class MosaicVaccineLazyILP:
                  min_epitope_conservation=None, verbosity=0,
                  subtour_elimination='dfj'):
 
+        self.logger = logging.getLogger(self.__class__.__name__)
+
         if not isinstance(predicted_affinities, EpitopePredictionResult):
             raise ValueError('first input parameter is not of type EpitopePredictionResult')
         elif subtour_elimination not in ['dfj', 'mtz']:
@@ -207,7 +209,7 @@ class MosaicVaccineLazyILP:
 
     def _compute_arcs_cost(self):
         # FIXME following solution based on suffix trees gives the wrong answer
-        xxx = generate_overlap_graph(self._peptides[1:])
+        #self._arc_cost = generate_overlap_graph(self._peptides[1:])
 
         self._arc_cost = np.zeros((len(self._peptides), len(self._peptides)))
 
@@ -301,14 +303,24 @@ class MosaicVaccineLazyILP:
                 None, sum(model.d[i, j] * model.x[i, j] for i, j in model.Arcs), model.TMAX))
         
         # include at most k epitopes in the vaccine
-        if self._max_vaccine_epitopes:
-            self.model.k = aml.Param(initialize=self._max_vaccine_epitopes, within=aml.PositiveIntegers)
+        if self._max_vaccine_epitopes > 0:
+            if self._max_vaccine_epitopes <= 1:
+                max_epitopes = int(len(self._peptides) * self._max_vaccine_epitopes)
+            else:
+                max_epitopes = self._max_vaccine_epitopes
+
+            self.model.k = aml.Param(initialize=max_epitopes, within=aml.PositiveIntegers)
             self.model.maxNofEpitopes = aml.Constraint(rule=lambda model: (
                 None, sum(model.y[n] for n in model.Nodes), model.k))
 
         # cover at least t_allele different alleles
         if self._min_allele_coverage > 0:
-            self.model.t_allele = aml.Param(initialize=self._min_allele_coverage, within=aml.NonNegativeIntegers)
+            if self._min_allele_coverage <= 1:
+                min_alleles = int(len(self._alleles) * self._min_allele_coverage)
+            else:
+                min_alleles = self._min_allele_coverage
+
+            self.model.t_allele = aml.Param(initialize=min_alleles, within=aml.NonNegativeIntegers)
             self.model.A = aml.Set(initialize=self._allele_bindings.keys())
             self.model.A_I = aml.Set(self.model.A, initialize=lambda model, allele: self._allele_bindings[allele])
             self.model.z = aml.Var(self.model.A, domain=aml.Binary, initialize=0)
@@ -320,7 +332,12 @@ class MosaicVaccineLazyILP:
 
         # cover at least t_var different antigens
         if self._min_antigen_coverage > 0:
-            self.model.t_var = aml.Param(initialize=self._min_antigen_coverage, within=aml.NonNegativeIntegers)
+            if self._min_antigen_coverage <= 1:
+                min_antigens = int(len(self._all_genes) * self._min_antigen_coverage)
+            else:
+                min_antigens = self._min_antigen_coverage
+
+            self.model.t_var = aml.Param(initialize=min_antigens, within=aml.NonNegativeIntegers)
             self.model.Q = aml.Set(initialize=self._all_genes)
             self.model.E_var = aml.Set(self.model.Q, initialize=lambda mode, v: self._gene_to_epitope[v])
             self.model.w = aml.Var(self.model.Q, domain=aml.Binary, initialize=0)
@@ -331,12 +348,13 @@ class MosaicVaccineLazyILP:
                 sum(model.y[e] for e in model.E_var[q]) >= model.w[q])
 
         # select only epitopes with conservation larger than t_c
-        if self._min_epitope_conservation > 0:
-            print(self._conservations)
-            self.model.c = aml.Param(self.model.Nodes, initialize=lambda model, e: self._conservations[e])
-            self.model.t_c = aml.Param(initialize=self._min_epitope_conservation, within=aml.NonNegativeReals)
-            self.model.EpitopeConsConst = aml.Constraint(self.model.Nodes, rule=lambda model, e: (
-                None, (1 - model.c[e]) * model.y[e] - (1 - model.t_c), 0.0))
+        # FIXME currently unused since I don't understand how we compute the conservation
+        #if self._min_epitope_conservation > 0:
+        #    print(self._conservations)
+        #    self.model.c = aml.Param(self.model.Nodes, initialize=lambda model, e: self._conservations[e])
+        #    self.model.t_c = aml.Param(initialize=self._min_epitope_conservation, within=aml.NonNegativeReals)
+        #    self.model.EpitopeConsConst = aml.Constraint(self.model.Nodes, rule=lambda model, e: (
+        #        None, (1 - model.c[e]) * model.y[e] - (1 - model.t_c), 0.0))
 
     def solve(self, options=None):
         ''' solves the model optimally

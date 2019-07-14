@@ -231,18 +231,15 @@ def main(input_file, solver, verbose, measure_time, randomize, binding_affinitie
     solver = solver_cls(
         bindings, thresh, max_vaccine_aminoacids=max_aminoacids, max_vaccine_epitopes=max_epitopes,
         min_allele_coverage=min_alleles, min_antigen_coverage=min_antigens,
-        min_epitope_conservation=min_conservation, verbosity=verbose, **solver_kwargs
+        min_epitope_conservation=None, verbosity=verbose, **solver_kwargs
     )
 
     solver_build_time = time.time()
     solver.build_model()
     
     solver_start_time = time.time()
-    tour, peptides = solver.solve()
+    result = solver.solve()
     solver_end_time = time.time()
-
-    print(tour)
-    print(peptides)
 
     if measure_time:
         print('==== Stopwatch')

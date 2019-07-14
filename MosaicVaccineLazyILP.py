@@ -77,6 +77,7 @@ class MosaicVaccineLazyILP:
         self._conservations = {0: 0}
         self._gene_to_epitope = {}
         self._allele_bindings = {}
+        self._peptide_bindings = {}
 
         method = self._raw_affinities.index.values[0][1]  # TODO find better way of filtering by method
         res_df = self._raw_affinities.xs(self._raw_affinities.index.values[0][1], level='Method')
@@ -87,7 +88,7 @@ class MosaicVaccineLazyILP:
 
         if threshold_mask.sum() == 0:
             raise ValueError('binding affinity threshold too high, no peptides selected')
-        else:
+        elif self._verbosity > 0:
             print(threshold_mask.sum(), 'peptides above threshold, breakdown:')
             for col in res_df.columns:
                 thr = self._thresh[col]
@@ -113,6 +114,7 @@ class MosaicVaccineLazyILP:
 
                 if bind_affinity >= bind_thr:
                     self._allele_bindings.setdefault(allele.name, set()).add(i)
+                    self._peptide_bindings.setdefault(i, set()).add(allele)
                     immunogen += self._allele_probs[allele.name] * bind_affinity
 
             self._immunogenicities.append(immunogen)
@@ -195,16 +197,48 @@ class MosaicVaccineLazyILP:
             print('The model will be initialized with the following feasible solution with cost %d and immunogenicity %.2f:' % (
                 (aminoacids_length, total_immunogenicity)
             ))
-            for u, v in solution_arcs[:-1]:
+            for u, v in solution_arcs:
                 print('    %5d (%9s) -> %5d (%9s) (cost: %2d, immunogenicity: %4.2f)' % (
                     u, self._peptides[u], v, self._peptides[v], 
                     self._arc_cost[u, v], self._immunogenicities[v]
                 ))
     
         return set(solution_peptides), set(solution_arcs)
-    
+
+    def _compute_arcs_cost(self):
+        # FIXME following solution based on suffix trees gives the wrong answer
+        xxx = generate_overlap_graph(self._peptides[1:])
+
+        self._arc_cost = np.zeros((len(self._peptides), len(self._peptides)))
+
+        for i, peptide_from in enumerate(self._peptides):
+            for j, peptide_to in enumerate(self._peptides):
+                cost = None
+                if j == 0 or i == j:
+                    cost = 0
+                elif i == 0:
+                    cost = len(peptide_to)
+                else:  # compute longest suffix-prefix
+                    k = 1
+                    peptide_to, peptide_from = str(peptide_to), str(peptide_from)
+                    while k < len(peptide_from) and k < len(peptide_to) and peptide_from[-k:] == peptide_to[:k]:
+                        k += 1
+                    cost = len(peptide_to) - k + 1
+                
+                self._arc_cost[i, j] = cost
+
+        # following code checks that the overlaps are computed correctly
+        for i, pfrom in enumerate(self._peptides):
+            for j, pto in enumerate(self._peptides):
+                overlap = int(9 - self._arc_cost[i, j])
+                if overlap == 0 or i == 0 or j == 0:
+                    continue
+
+                pfrom, pto = str(pfrom), str(pto)
+                assert pfrom[-overlap:] == pto[:overlap], (i, pfrom, j, pto, overlap)
+        
     def build_model(self):
-        self._arc_cost = generate_overlap_graph(self._peptides[1:])
+        self._compute_arcs_cost()
         self._initial_peptides, self._initial_arcs = self._find_initial_solution()
 
         if self._verbosity:
@@ -222,7 +256,10 @@ class MosaicVaccineLazyILP:
         '''
         # graph objects
         self.model.Nodes = aml.RangeSet(0, len(self._peptides) - 1)
-        self.model.Arcs = self.model.Nodes * self.model.Nodes
+        self.model.Arcs = aml.Set(initialize=[(i, j)
+                                  for i in xrange(len(self._peptides))
+                                  for j in xrange(len(self._peptides))
+                                  if i != j])
 
         # reward of nodes and cost of arcs
         self.model.i = aml.Param(self.model.Nodes, initialize=lambda model, i: self._immunogenicities[i])
@@ -329,7 +366,7 @@ class MosaicVaccineLazyILP:
                 for tt in tours:
                     print('   ', tt)
 
-            if len(tours) > 1:
+            if len(tours) > 1 or 0 not in (u for u, v in tours[0]):
                 if self._subtour_elimination_method == 'mtz':
                     self._eliminate_subtours_mtz(arcs, tours)
                 else:
@@ -349,9 +386,41 @@ class MosaicVaccineLazyILP:
         if self._verbosity > 0:
             res.write(num=1)
 
-        self._result = tours[0]
-        vaccine_peptides = [self._peptides[j] for i, j in self._result[:-1]]
-        return self._result, vaccine_peptides
+        self._result = self._solution_summary(tours[0])
+        return self._result
+    
+    def _solution_summary(self, tour):
+        vaccine = []
+        epitopes = []
+        genes = set()
+        alleles = set()
+
+        for i, j in tour[:-1]:
+            pep = self._peptides[j]
+            cost = self._arc_cost[i, j]
+            print('%d %s -> %d %s @ %d' % (i, self._peptides[i], j, self._peptides[j], int(cost)))
+
+            assert i == 0 or cost == 9 or str(self._peptides[i])[int(cost)-9:] == str(pep)[:-int(cost)], (
+                'wrong overlap', str(self._peptides[i]), str(self._peptides[j]), int(9 - cost)
+            )
+
+            epitopes.append(pep)
+            vaccine.append(str(pep)[-int(cost):])
+            genes.update([p.gene_id for p in pep.get_all_proteins()])
+            alleles.update(self._peptide_bindings[self._pep_to_index[pep]])
+        
+        res = EvaluationResult()
+        res.vaccine = ''.join(vaccine)
+        res.epitopes = epitopes
+        res.genes = genes
+        res.alleles = alleles
+
+        print(res.vaccine)
+        print(res.epitopes)
+        print(res.genes)
+        print(res.alleles)
+        
+        return res
 
     def _reinitialize_model(self, tours):    
         ''' removes the specified tours and re-initializes
@@ -421,3 +490,10 @@ class MosaicVaccineLazyILP:
                 cursor = arcs[cursor]
             tours.append(tour)
         return tours
+
+
+class EvaluationResult:
+    vaccine = None
+    epitopes = None
+    genes = None
+    alleles = None

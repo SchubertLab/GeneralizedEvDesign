@@ -1,9 +1,12 @@
 from __future__ import print_function
+
 import pandas as pd
 import numpy as np
 from builtins import map
 
 import time
+import logging
+
 from collections import defaultdict
 from Fred2.Core.Peptide import Peptide
 from MosaicVaccineILP import MosaicVaccineILP
@@ -17,6 +20,9 @@ from Fred2.EpitopeSelection.PopCover import PopCover
 from Fred2.Utility import generate_overlap_graph
 import click
 import Fred2
+
+
+LOGGER = None
 
 
 def get_alleles_and_thresholds():
@@ -88,7 +94,7 @@ def get_peptides(input_file, min_conservation):
         try:
             subtype, country, strain1, strain2, accession, gene = prot.transcript_id.split('.')
         except ValueError:
-            print('cannot parse', prot.transcript_id)
+            LOGGER.debug('Cannot parse %s', prot.transcript_id)
             continue
 
         prot.gene_id = gene
@@ -109,13 +115,11 @@ def get_peptides(input_file, min_conservation):
     peptides = {}
     for (subtype, gene), pros in proteins_by_subtype_and_gene.iteritems():
         if len(pros) > 10:
-            print('Generating conserved consensus peptides for gene %s of subtype %s (%d proteins)' % (
-                gene, subtype, len(pros)
-            ))
+            LOGGER.debug('Generating conserved consensus peptides for gene %s of subtype %s (%d proteins)',
+                         gene, subtype, len(pros))
         else:
-            print('Not enough proteins (%d) to generate a reliable consensus for gene %s of subtype %s' % (
-                len(pros), gene, subtype
-            ))
+            LOGGER.debug('Not enough proteins (%d) to generate a reliable consensus for gene %s of subtype %s',
+                         len(pros), gene, subtype)
             continue
 
         consensus, conservation = compute_consensus_and_conservation(pros)
@@ -144,22 +148,22 @@ def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
         bindings = bindings.set_index(['Seq', 'Method'])
         bindings.columns = list(map(Allele, bindings.columns))
         bindings = EpitopePredictionResult(bindings)
-        print('Binding affinities loaded from', bindings_path)
+        LOGGER.info('Binding affinities loaded from', bindings_path)
 
     if randomize > 0:
         if randomize > 1:
             randomize = randomize / 100
         if bindings_path:
-            print('WARNING: randomize and binding affinities both specified! The specified affinities will not')
-            print('WARNING: be overwritten, but randominze will not work as intended if the affinities are not')
-            print('WARNING: suitably randomized (i.e. uniformly between 0 and 1).')
-            print('WARNING: ')
-            print('WARNING: To generate randomized affinities, run once with randomize and *without* binding affinities.')
-            print('WARNING: Randomized affinities will be generated and stored in "./resources/bindings.csv"')
-            print('WARNING: and can be loaded in subsequent runs.')
-            print('WARNING: ')
-            print('WARNING: If you already did this, this warning is safe to ignore.')
-            print()
+            LOGGER.warn('randomize and binding affinities both specified! The specified affinities will not')
+            LOGGER.warn('be overwritten, but randominze will not work as intended if the affinities are not')
+            LOGGER.warn('suitably randomized (i.e. uniformly between 0 and 1).')
+            LOGGER.warn('')
+            LOGGER.warn('To generate randomized affinities, run once with randomize and *without* binding affinities.')
+            LOGGER.warn('Randomized affinities will be generated and stored in "./resources/bindings.csv"')
+            LOGGER.warn('and can be loaded in subsequent runs.')
+            LOGGER.warn('')
+            LOGGER.warn('If you already did this, this warning is safe to ignore.')
+            LOGGER.warn('')
 
         # chosen so that 100*randomize % of peptides have at least one allele
         # with larger binding strength, assuming that these are uniform(0, 1)
@@ -213,20 +217,24 @@ def get_solver_class(solver):
 @click.option('--min-antigens', '-g', default=0.0, help='Minimum antigens to cover with the vaccine')
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
-@click.option('--measure-time', '-T', is_flag=True, help='Print the time spent on each stage at the end') 
 @click.option('--randomize', '-r', default=0.0, help='Randomly assign affinities and select a given portion of epitopes')
-def main(input_file, solver, verbose, measure_time, randomize, binding_affinities,
+def main(input_file, solver, verbose, randomize, binding_affinities,
          max_aminoacids, max_epitopes, min_alleles, min_antigens, min_conservation):
+
+    logging.basicConfig(level=(logging.DEBUG) if verbose else logging.INFO,
+                        format='%(asctime)s %(name)s %(levelname)s: %(message)s')
+
+    global LOGGER
+    LOGGER = logging.getLogger('design-mosaic')
 
     program_start_time = time.time()
 
     peptides = get_peptides(input_file, min_conservation)
-    print(len(peptides), 'peptides generated')
+    LOGGER.info('%d peptides generated', len(peptides))
     bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize, binding_affinities)
 
     solver_cls, solver_kwargs = get_solver_class(solver)
-    if verbose:
-        print('Using solver', solver_cls)
+    LOGGER.debug('Using solver %s', solver_cls)
 
     solver_creation_time = time.time()
     solver = solver_cls(
@@ -242,13 +250,12 @@ def main(input_file, solver, verbose, measure_time, randomize, binding_affinitie
     result = solver.solve()
     solver_end_time = time.time()
 
-    if measure_time:
-        print('==== Stopwatch')
-        print('Total time           : %.2f s' % (solver_end_time - program_start_time))
-        print('Inputs preparation   : %.2f s' % (solver_creation_time - program_start_time))
-        print('Pre-processing       : %.2f s' % (solver_build_time - solver_creation_time))
-        print('Model creation time  : %.2f s' % (solver_start_time - solver_build_time))
-        print('Solving time         : %.2f s' % (solver_end_time - solver_start_time))
+    LOGGER.info('==== Stopwatch')
+    LOGGER.info('Total time           : %.2f s', solver_end_time - program_start_time)
+    LOGGER.info('Inputs preparation   : %.2f s', solver_creation_time - program_start_time)
+    LOGGER.info('Pre-processing       : %.2f s', solver_build_time - solver_creation_time)
+    LOGGER.info('Model creation time  : %.2f s', solver_start_time - solver_build_time)
+    LOGGER.info('Solving time         : %.2f s', solver_end_time - solver_start_time)
 
 
 if __name__ == '__main__':

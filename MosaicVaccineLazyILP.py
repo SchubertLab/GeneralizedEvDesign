@@ -24,6 +24,8 @@ import copy
 import math
 import time
 import numpy as np
+import StringIO
+import sys
 
 import multiprocessing as mp
 import logging
@@ -82,6 +84,7 @@ class MosaicVaccineLazyILP:
         self._peptide_bindings = {}
 
         method = self._raw_affinities.index.values[0][1]  # TODO find better way of filtering by method
+        self.logger.info('Using binding affinities from method "%s"', method)
         res_df = self._raw_affinities.xs(self._raw_affinities.index.values[0][1], level='Method')
         threshold_mask = res_df.apply(lambda x: any(  # FIXME shouldn't we log-transform first if method is one of .... ?
             x[allele] > self._thresh.get(allele, -float('inf'))
@@ -89,12 +92,12 @@ class MosaicVaccineLazyILP:
         ), axis=1)
 
         if threshold_mask.sum() == 0:
-            raise ValueError('binding affinity threshold too high, no peptides selected')
-        elif self._verbosity > 0:
-            print(threshold_mask.sum(), 'peptides above threshold, breakdown:')
-            for col in res_df.columns:
-                thr = self._thresh[col]
-                print('   ', col, np.sum(res_df[col] > thr))
+            raise ValueError('Binding affinity threshold too high, no peptides selected')
+
+        self.logger.info('%d peptides above threshold for at least one allele', threshold_mask.sum())
+        self.logger.debug('Breakdown:')
+        for col in res_df.columns:
+            self.logger.debug('    %s %d', col, np.sum(res_df[col] > self._thresh[col]))
 
         res_df = res_df[threshold_mask]
         for i, tup in enumerate(res_df.itertuples()):
@@ -195,19 +198,29 @@ class MosaicVaccineLazyILP:
             solution_peptides.append(idx)
     
         solution_arcs.append((solution_peptides[-1], 0))       
-        if self._verbosity:
-            print('The model will be initialized with the following feasible solution with cost %d and immunogenicity %.2f:' % (
-                (aminoacids_length, total_immunogenicity)
-            ))
-            for u, v in solution_arcs:
-                print('    %5d (%9s) -> %5d (%9s) (cost: %2d, immunogenicity: %4.2f)' % (
-                    u, self._peptides[u], v, self._peptides[v], 
-                    self._arc_cost[u, v], self._immunogenicities[v]
-                ))
-    
+        self.logger.debug('The model will be initialized with the following feasible '
+                          'solution with cost %d and immunogenicity %.2f:', aminoacids_length, total_immunogenicity)
+        for u, v in solution_arcs:
+            self.logger.debug('    %5d (%9s) -> %5d (%9s) (cost: %2d, immunogenicity: %4.2f)',
+                              u, self._peptides[u], v, self._peptides[v],
+                              self._arc_cost[u, v], self._immunogenicities[v])
+
         return set(solution_peptides), set(solution_arcs)
 
+    def build_model(self):
+        self._compute_arcs_cost()
+        self._initial_peptides, self._initial_arcs = self._find_initial_solution()
+
+        self.logger.info('Building model...')
+
+        self.model = aml.ConcreteModel()
+        self._build_base_tsp_model()
+        self._build_model_vaccine_constraints()
+
+        self.logger.info('Model built!')
+        
     def _compute_arcs_cost(self):
+        self.logger.debug('Computing arc costs...')
         # FIXME following solution based on suffix trees gives the wrong answer
         #self._arc_cost = generate_overlap_graph(self._peptides[1:])
 
@@ -238,20 +251,6 @@ class MosaicVaccineLazyILP:
 
                 pfrom, pto = str(pfrom), str(pto)
                 assert pfrom[-overlap:] == pto[:overlap], (i, pfrom, j, pto, overlap)
-        
-    def build_model(self):
-        self._compute_arcs_cost()
-        self._initial_peptides, self._initial_arcs = self._find_initial_solution()
-
-        if self._verbosity:
-            print('Building model...')
-
-        self.model = aml.ConcreteModel()
-        self._build_base_tsp_model()
-        self._build_model_vaccine_constraints()
-
-        if self._verbosity:
-            print('Model built!')
         
     def _build_base_tsp_model(self):
         ''' builds a MIP model suitable for solving the orienteering problem
@@ -298,9 +297,12 @@ class MosaicVaccineLazyILP:
         '''
         # include at most tmax aminoacids in the vaccine
         if self._max_vaccine_aminoacids > 0:
+            self.logger.info('Vaccine will have at most %d aminoacids', self._max_vaccine_aminoacids)
             self.model.TMAX = aml.Param(initialize=self._max_vaccine_aminoacids, within=aml.PositiveIntegers)
             self.model.maxNofAminoacids = aml.Constraint(rule=lambda model: (
                 None, sum(model.d[i, j] * model.x[i, j] for i, j in model.Arcs), model.TMAX))
+        else:
+            self.logger.info('No limit on number of aminoacids in the vaccine')
         
         # include at most k epitopes in the vaccine
         if self._max_vaccine_epitopes > 0:
@@ -309,9 +311,12 @@ class MosaicVaccineLazyILP:
             else:
                 max_epitopes = self._max_vaccine_epitopes
 
+            self.logger.info('Vaccine will have at most %d epitopes', max_epitopes)
             self.model.k = aml.Param(initialize=max_epitopes, within=aml.PositiveIntegers)
             self.model.maxNofEpitopes = aml.Constraint(rule=lambda model: (
                 None, sum(model.y[n] for n in model.Nodes), model.k))
+        else:
+            self.logger.info('No limit on number of epitopes in the vaccine')
 
         # cover at least t_allele different alleles
         if self._min_allele_coverage > 0:
@@ -320,6 +325,7 @@ class MosaicVaccineLazyILP:
             else:
                 min_alleles = self._min_allele_coverage
 
+            self.logger.info('Vaccine will cover at least %d alleles', min_alleles)
             self.model.t_allele = aml.Param(initialize=min_alleles, within=aml.NonNegativeIntegers)
             self.model.A = aml.Set(initialize=self._allele_bindings.keys())
             self.model.A_I = aml.Set(self.model.A, initialize=lambda model, allele: self._allele_bindings[allele])
@@ -329,6 +335,8 @@ class MosaicVaccineLazyILP:
                 sum(model.z[allele] for allele in model.A) >= model.t_allele)
             self.model.IsAlleleCovConst = aml.Constraint(self.model.A, rule=lambda model, allele:
                 sum(model.y[e] for e in model.A_I[allele]) >= model.z[allele])
+        else:
+            self.logger.info('No minimum allele coverage enforced')
 
         # cover at least t_var different antigens
         if self._min_antigen_coverage > 0:
@@ -337,6 +345,7 @@ class MosaicVaccineLazyILP:
             else:
                 min_antigens = self._min_antigen_coverage
 
+            self.logger.info('Vaccine will cover at least %d antigens', min_antigens)
             self.model.t_var = aml.Param(initialize=min_antigens, within=aml.NonNegativeIntegers)
             self.model.Q = aml.Set(initialize=self._all_genes)
             self.model.E_var = aml.Set(self.model.Q, initialize=lambda mode, v: self._gene_to_epitope[v])
@@ -346,6 +355,8 @@ class MosaicVaccineLazyILP:
                 sum(model.w[q] for q in model.Q) >= model.t_var)
             self.model.IsAntigenCovConst = aml.Constraint(self.model.Q, rule=lambda model, q:
                 sum(model.y[e] for e in model.E_var[q]) >= model.w[q])
+        else:
+            self.logger.info('No minimum antigen coverage enforced')
 
         # select only epitopes with conservation larger than t_c
         # FIXME currently unused since I don't understand how we compute the conservation
@@ -357,6 +368,28 @@ class MosaicVaccineLazyILP:
         #        None, (1 - model.c[e]) * model.y[e] - (1 - model.t_c), 0.0))
 
     def solve(self, options=None):
+        # if logging is configured, gurobipy will print messages there *and* on stdout
+        # so we replace stdout with a fake file that ignores everything
+        class DevNull:
+            def write(self, *args, **kwargs):
+                pass
+            
+            def flush(self, *args, **kwargs):
+                pass
+        
+        sys.stdout = DevNull()
+
+        try:
+            return self._solve(options)
+        except Exception:
+            # restore stdout so that handlers can print normally
+            # https://docs.python.org/3/library/sys.html#sys.__stdout__ 
+            sys.stdout = sys.__stdout__
+            raise
+        finally:
+            sys.stdout = sys.__stdout__
+
+    def _solve(self, options=None):
         ''' solves the model optimally
         '''
         options = options if options is not None else {
@@ -364,25 +397,24 @@ class MosaicVaccineLazyILP:
             'Method': 3,    # use the concurrent solver for root relaxation
         }
 
+        self.logger.info('Solving started')
+        self.logger.info('Using %s subtour elimination constraints', self._subtour_elimination_method.upper())
         self._solver.set_instance(self.model)
         self._subtour_constraints = 0
 
         while True:
-            res = self._solver.solve(options=options, tee=bool(self._verbosity), save_results=False,
-                                      report_timing=True)
+            res = self._solver.solve(options=options, tee=1, save_results=False, report_timing=True)
             if res.solver.termination_condition != TerminationCondition.optimal:
                 raise RuntimeError('Could not solve problem - %s . Please check your settings' % res.Solution.status)
 
             self._solver.load_vars()
             arcs = self._extract_solution_from_model()
-            if self._verbosity:
-                print('Solution contains the following arcs:', arcs)
+            self.logger.debug('Solution contains the following arcs:', arcs)
             
             tours = self._extract_tours_from_arcs(arcs)
-            if self._verbosity:
-                print('Solution contains the following tour(s):')
-                for tt in tours:
-                    print('   ', tt)
+            self.logger.debug('Solution contains the following tour(s):')
+            for tt in tours:
+                self.logger.debug('   %s', tt)
 
             if len(tours) > 1 or 0 not in (u for u, v in tours[0]):
                 if self._subtour_elimination_method == 'mtz':
@@ -390,20 +422,20 @@ class MosaicVaccineLazyILP:
                 else:
                     self._eliminate_subtours_dfj(arcs, tours)
 
-                if self._verbosity:
-                    print('========================')
-                    print('Invalid solution returned!')
-                    print('%s subtour elimination constraints updated (%d inserted so far)' % (
-                        self._subtour_elimination_method.upper(), self._subtour_constraints
-                    ))
+                self.logger.debug('========================')
+                self.logger.debug('Invalid solution returned!')
+                self.logger.debug('%s subtour elimination constraints updated (%d inserted so far)' % (
+                    self._subtour_elimination_method.upper(), self._subtour_constraints
+                ))
                 
                 self._reinitialize_model(tours)
             else:
                 break
-
+        
         if self._verbosity > 0:
             res.write(num=1)
 
+        self.logger.info('Solved successfully')
         self._result = self._solution_summary(tours[0])
         return self._result
     

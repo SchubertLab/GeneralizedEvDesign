@@ -9,8 +9,7 @@ import logging
 
 from collections import defaultdict
 from Fred2.Core.Peptide import Peptide
-from MosaicVaccineILP import MosaicVaccineILP
-from MosaicVaccineLazyILP import MosaicVaccineLazyILP
+from mosaic_vaccine_ilp import MosaicVaccineILP
 from MosaicVaccineGreedy import MosaicVaccineGreedy
 from Fred2.Core import Protein, Allele, Peptide
 from Fred2.Core import generate_peptides_from_proteins
@@ -188,17 +187,10 @@ def get_solver_class(solver):
     if solver == 'gcb':
         solver_cls = MosaicVaccineGreedy
         raise NotImplementedError()
-    elif solver == 'dfj':
-        solver_cls = MosaicVaccineLazyILP
-        solver_kwargs['subtour_elimination'] = 'dfj'
-    elif solver == 'mtz-l':
-        solver_cls = MosaicVaccineLazyILP
-        solver_kwargs['subtour_elimination'] = 'mtz'
-    elif solver == 'mtz-g':
-        solver_cls = MosaicVaccineILP
     else:
-        raise ValueError('unknown solver')
-        
+        solver_cls = MosaicVaccineILP
+        solver_kwargs['model_type'] = solver
+
     return solver_cls, solver_kwargs
 
 
@@ -222,7 +214,7 @@ def main(input_file, solver, verbose, randomize, binding_affinities,
          max_aminoacids, max_epitopes, min_alleles, min_antigens, min_conservation):
 
     logging.basicConfig(level=(logging.DEBUG) if verbose else logging.INFO,
-                        format='%(asctime)s %(name)s %(levelname)s: %(message)s')
+                        format='%(asctime)s %(levelname)s: %(message)s')
 
     global LOGGER
     LOGGER = logging.getLogger('design-mosaic')

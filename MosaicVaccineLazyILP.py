@@ -55,6 +55,7 @@ class MosaicVaccineLazyILP:
         elif subtour_elimination not in ['dfj', 'mtz']:
             raise ValueError('subtour elimination method must be either "dfj" or "mtz"')
         
+        self._model = None
         self._raw_affinities = predicted_affinities
         self._alleles = copy.deepcopy(self._raw_affinities.columns.values.tolist())
         self._allele_probs = self._fill_allele_probs(self._alleles)
@@ -399,6 +400,8 @@ class MosaicVaccineLazyILP:
 
         self.logger.info('Solving started')
         self.logger.info('Using %s subtour elimination constraints', self._subtour_elimination_method.upper())
+        if self.model is None:
+            raise RuntimeError('must call build_model before solve')
         self._solver.set_instance(self.model)
         self._subtour_constraints = 0
 
@@ -438,37 +441,32 @@ class MosaicVaccineLazyILP:
         self.logger.info('Solved successfully')
         self._result = self._solution_summary(tours[0])
         return self._result
-    
+
     def _solution_summary(self, tour):
-        vaccine = []
-        epitopes = []
-        genes = set()
-        alleles = set()
+        res = EvaluationResult()
+        res.vaccine = []
+        res.epitopes = []
+        res.peptide_to_gene = {}
+        res.peptide_to_hla = {}
+        res.immunogenicities = {}
 
         for i, j in tour[:-1]:
             pep = self._peptides[j]
             cost = self._arc_cost[i, j]
-            print('%d %s -> %d %s @ %d' % (i, self._peptides[i], j, self._peptides[j], int(cost)))
+            idx = self._pep_to_index[pep]
 
+            # check overlaps are correct
             assert i == 0 or cost == 9 or str(self._peptides[i])[int(cost)-9:] == str(pep)[:-int(cost)], (
                 'wrong overlap', str(self._peptides[i]), str(self._peptides[j]), int(9 - cost)
             )
 
-            epitopes.append(pep)
-            vaccine.append(str(pep)[-int(cost):])
-            genes.update([p.gene_id for p in pep.get_all_proteins()])
-            alleles.update(self._peptide_bindings[self._pep_to_index[pep]])
+            res.epitopes.append(pep)
+            res.peptide_to_gene[pep] = set([p.gene_id for p in pep.get_all_proteins()])
+            res.peptide_to_hla[pep] = set(self._peptide_bindings[idx])
+            res.vaccine.append(str(pep)[-int(cost):])
+            res.immunogenicities[pep] = self._immunogenicities[idx]
         
-        res = EvaluationResult()
-        res.vaccine = ''.join(vaccine)
-        res.epitopes = epitopes
-        res.genes = genes
-        res.alleles = alleles
-
-        print(res.vaccine)
-        print(res.epitopes)
-        print(res.genes)
-        print(res.alleles)
+        res.vaccine = ''.join(res.vaccine)
         
         return res
 
@@ -547,3 +545,42 @@ class EvaluationResult:
     epitopes = None
     genes = None
     alleles = None
+    peptide_to_hla = None
+    peptide_to_gene = None
+    immunogenicities = None
+
+    def pretty_print(self, print_fn=None):
+        print_fn = print_fn or print
+
+        print_fn('')
+        print_fn('==============================')
+        print_fn('=       Vaccine Summary      =')
+        print_fn('==============================')
+        for i in range(0, len(self.vaccine), 50):
+            print_fn('%s%s' % (
+                'Sequence : ' if i == 0 else ' ' * 11,
+                self.vaccine[i:i + 50]
+            ))
+        
+        print_fn('')
+        genes_covered = sorted(reduce(lambda r, s: r | s, self.peptide_to_gene.values()))
+        alleles_covered = sorted(map(str, reduce(lambda r, s: r | s, self.peptide_to_hla.values())))
+        compression = 1 - float(len(self.vaccine)) / sum(len(str(e)) for e in self.epitopes)
+        print_fn('  Number of Aminoacids : %d' % len(self.vaccine))
+        print_fn('    Number of Epitopes : %d'% len(self.epitopes))
+        print_fn('           Compression : %.2f %%' % (100 * compression))
+        print_fn('  Total Immunogenicity : %.2f' % sum(self.immunogenicities.values()))
+        print_fn('      Covers %3d Genes : ' % len(genes_covered) + ', '.join(genes_covered))
+        print_fn('    Covers %3d Alleles : ' % len(alleles_covered) + ', '.join(alleles_covered))
+
+        print_fn('')
+        print_fn('')
+        print_fn('Epitope Breakdown')
+        print_fn('=================')
+        print_fn('')
+        for i, ep in enumerate(self.epitopes):
+            print_fn('       Epitope %03d : %s' % (i + 1, ep))
+            print_fn('    Immunogenicity : %.2f' % self.immunogenicities[ep])
+            print_fn('    Covers Gene(s) : ' + ', '.join(sorted(self.peptide_to_gene[ep])))
+            print_fn('  Covers Allele(s) : ' + ', '.join(sorted(map(str, self.peptide_to_hla[ep]))))
+            print_fn('')

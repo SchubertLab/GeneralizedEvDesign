@@ -250,6 +250,8 @@ def main(input_file, solver, verbose, randomize, binding_affinities,
     result = solver.solve()
     solver_end_time = time.time()
 
+    result.pretty_print(LOGGER.info)
+
     LOGGER.info('==== Stopwatch')
     LOGGER.info('Total time           : %.2f s', solver_end_time - program_start_time)
     LOGGER.info('Inputs preparation   : %.2f s', solver_creation_time - program_start_time)

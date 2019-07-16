@@ -30,7 +30,7 @@ def main():
 
 
 def get_alleles_and_thresholds():
-    return {     # According to Table 1 in Toussaint et al. (2011)
+    return {     # According to Table 1 in Vider-Shalit et al. 2007
         #                  population cov.  :   threshold
         Allele('A*01:01',  4.498520 / 100.0):   0.08710, 
         Allele('A*02:01', 10.693200 / 100.0):   1.25720, 
@@ -247,8 +247,7 @@ def design_vaccine(input_sequences, solver, verbose, randomize, binding_affiniti
     result = solver.solve()
     solver_end_time = time.time()
 
-    #result.pretty_print(LOGGER.info)
-    print(result)
+    result.pretty_print(LOGGER.info)
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('Total time           : %.2f s', solver_end_time - program_start_time)
@@ -264,6 +263,8 @@ def design_vaccine(input_sequences, solver, verbose, randomize, binding_affiniti
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 def inspect_vaccine(input_sequences, epitopes, min_conservation, verbose):
+    logging.basicConfig(level=(logging.DEBUG) if verbose else logging.INFO,
+                        format='%(asctime)s %(levelname)s: %(message)s')
     global LOGGER
     LOGGER = logging.getLogger('inspect-vaccine')
 

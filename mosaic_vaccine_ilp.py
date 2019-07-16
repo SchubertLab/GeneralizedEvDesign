@@ -118,7 +118,7 @@ class DataContainer:
                 if bind_affinity >= bind_thr:
                     self.allele_bindings.setdefault(allele.name, set()).add(i)
                     self.peptide_bindings.setdefault(i, set()).add(allele)
-                    immunogen += self.allele_probs[allele.name] * bind_affinity
+                    immunogen += self.allele_probs[allele] * bind_affinity
 
             self.immunogenicities.append(immunogen)
 
@@ -167,7 +167,7 @@ class DataContainer:
                     for a in v:
                         a.prob = 1.0 / total_loc_a
 
-        return {a.name: a.prob for a in alleles}
+        return {a: a.prob for a in alleles}
 
     def _compute_arcs_cost(self):
         self.logger.debug('Computing arc costs...')
@@ -545,6 +545,19 @@ class EvaluationResult:
 
         res.vaccine = ''.join(res.vaccine)
 
+        res.genes_covered = sorted(set(str(g) for gl in res.peptide_to_gene.values() for g in gl))
+        res.alleles_covered = sorted(set(str(a) for al in res.peptide_to_hla.values() for a in al))
+        res.epitope_length = sum(len(str(e)) for e in res.epitopes)
+        res.compression = (1 - float(len(res.vaccine)) / res.epitope_length)
+        res.epitope_gain = (res.epitope_length - len(res.vaccine)) / (res.epitope_length / len(res.epitopes))
+
+        coverage = {'A': 0.0, 'B': 0.0, 'C': 0.0}
+        for al in res.alleles_covered:
+            coverage[str(al)[4]] += data.allele_probs[al]
+        res.population_covered = 1 - reduce(
+            lambda x, y: x * y, (1 - p for p in coverage.values())
+        )**2
+
         return res
 
     def pretty_print(self, print_fn=None):
@@ -561,20 +574,15 @@ class EvaluationResult:
             ))
 
         print_fn('')
-        genes_covered = sorted(set(str(g) for gl in self.peptide_to_gene.values() for g in gl))
-        alleles_covered = sorted(set(str(a) for al in self.peptide_to_hla.values() for a in al))
-        epitope_length = sum(len(str(e)) for e in self.epitopes)
+
         print_fn('  Number of Aminoacids : %d' % len(self.vaccine))
         print_fn('    Number of Epitopes : %d'% len(self.epitopes))
-        print_fn('           Compression : %.2f %%' % (
-            100 * (1 - float(len(self.vaccine)) / epitope_length)
-        ))
-        print_fn('          Epitope Gain : %.2f' % (
-            (epitope_length - len(self.vaccine)) / (epitope_length / len(self.epitopes))
-        ))
+        print_fn('           Compression : %.2f %%' % (100 * self.compression))
+        print_fn('          Epitope Gain : %.2f' % self.epitope_gain)
         print_fn('  Total Immunogenicity : %.2f' % sum(self.immunogenicities.values()))
-        print_fn('     %3d Genes Covered : ' % len(genes_covered) + ', '.join(genes_covered))
-        print_fn('   %3d Alleles Covered : ' % len(alleles_covered) + ', '.join(alleles_covered))
+        print_fn('     %3d Genes Covered : ' % len(self.genes_covered) + ', '.join(self.genes_covered))
+        print_fn('   %3d Alleles Covered : ' % len(self.alleles_covered) + ', '.join(self.alleles_covered))
+        print_fn('    Population Covered : %.2f %%' % (100 * self.population_covered))
 
         print_fn('')
         print_fn('')

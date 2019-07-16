@@ -235,48 +235,7 @@ class MosaicVaccineILP:
         self._min_antigen_coverage = min_antigen_coverage
         self._min_epitope_conservation = min_epitope_conservation
 
-    def _find_initial_solution(self):
-        ''' find an initial solution to initialize the variables
-            greedily select the peptides with highest immunogenicity
-            until the maximum length of the vaccine is reached
-
-            returns the set of epitopes and the set of arcs
-        '''
-        sorted_by_immunogenicity = sorted(
-            self._data.peptides,
-            key=lambda pep: self._data.immunogenicities[self._data.pep_to_index.get(pep, 0)],
-            reverse=True
-        )
-
-        solution_peptides, solution_arcs = [0], []
-        aminoacids_length = total_immunogenicity = 0
-        for i, pep in enumerate(sorted_by_immunogenicity):
-            if self._max_vaccine_epitopes > 0 and i >= self._max_vaccine_epitopes:
-                break
-
-            idx = self._data.pep_to_index[pep]
-            arc_cost = self._data.arc_cost[solution_peptides[-1], idx]
-            if self._max_vaccine_aminoacids > 0 and aminoacids_length + arc_cost > self._max_vaccine_aminoacids:
-                break
-
-            aminoacids_length += arc_cost
-            total_immunogenicity += self._data.immunogenicities[idx]
-            solution_arcs.append((solution_peptides[-1], idx))
-            solution_peptides.append(idx)
-
-        solution_arcs.append((solution_peptides[-1], 0))
-        self.logger.debug('The model will be initialized with the following feasible '
-                          'solution with cost %d and immunogenicity %.2f:', aminoacids_length, total_immunogenicity)
-        for u, v in solution_arcs:
-            self.logger.debug('    %5d (%9s) -> %5d (%9s) (cost: %2d, immunogenicity: %4.2f)',
-                              u, self._data.peptides[u], v, self._data.peptides[v],
-                              self._data.arc_cost[u, v], self._data.immunogenicities[v])
-
-        return set(solution_peptides), set(solution_arcs)
-
     def build_model(self):
-        self._initial_peptides, self._initial_arcs = self._find_initial_solution()
-
         self.logger.info('Building model...')
 
         self._model = aml.ConcreteModel()
@@ -302,10 +261,8 @@ class MosaicVaccineILP:
         self._model.d = aml.Param(self._model.Arcs, initialize=lambda model, i, j: self._data.arc_cost[i][j])
 
         # indicator variables for nodes and arcs
-        self._model.x = aml.Var(self._model.Arcs, domain=aml.Binary, bounds=(0, 1),
-                                initialize=lambda model, u, v: (u, v) in self._initial_arcs)
-        self._model.y = aml.Var(self._model.Nodes, domain=aml.Binary,
-                                initialize=lambda model, u: u in self._initial_peptides)
+        self._model.x = aml.Var(self._model.Arcs, domain=aml.Binary, bounds=(0, 1), initialize=0)
+        self._model.y = aml.Var(self._model.Nodes, domain=aml.Binary, initialize=0)
 
         # node potentials necessary for MTZ subtour elimination constraints
         if self._model_type.startswith('mtz'):
@@ -476,8 +433,7 @@ class MosaicVaccineILP:
                 elif self._model_type == 'dfj':
                     self._eliminate_subtours_dfj(arcs, tours)
                 else:
-                    raise RuntimeError('This is a bug: I should not have reached this point. '
-                                       'This means that the MTZ model is mis-specified.')
+                    raise RuntimeError('This is a bug: I should not have reached this point.')
 
                 self.logger.debug('========================')
                 self.logger.debug('Invalid solution returned!')
@@ -485,8 +441,6 @@ class MosaicVaccineILP:
                     self._model_type.upper(), self._subtour_constraints
                 ))
                 self.logger.debug('========================')
-
-                self._reinitialize_model(tours)
             else:
                 break
 
@@ -494,48 +448,8 @@ class MosaicVaccineILP:
             res.write(num=1)
 
         self.logger.info('Solved successfully')
-        self._result = self._solution_summary(tours[0])
+        self._result = EvaluationResult.build(self._data, tours[0])
         return self._result
-
-    def _solution_summary(self, tour):
-        res = EvaluationResult()
-        res.vaccine = []
-        res.epitopes = []
-        res.peptide_to_gene = {}
-        res.peptide_to_hla = {}
-        res.immunogenicities = {}
-
-        for i, j in tour[:-1]:
-            pep = self._data.peptides[j]
-            cost = self._data.arc_cost[i, j]
-            idx = self._data.pep_to_index[pep]
-
-            # check overlaps are correct
-            assert i == 0 or cost == 9 or str(self._data.peptides[i])[int(cost)-9:] == str(pep)[:-int(cost)], (
-                'wrong overlap', str(self._data.peptides[i]), str(self._data.peptides[j]), int(9 - cost)
-            )
-
-            res.epitopes.append(pep)
-            res.peptide_to_gene[pep] = set([p.gene_id for p in pep.get_all_proteins()])
-            res.peptide_to_hla[pep] = set(self._data.peptide_bindings[idx])
-            res.vaccine.append(str(pep)[-int(cost):])
-            res.immunogenicities[pep] = self._data.immunogenicities[idx]
-
-        res.vaccine = ''.join(res.vaccine)
-
-        return res
-
-    def _reinitialize_model(self, tours):
-        ''' removes the specified tours and re-initializes
-            the model with the initial feasible solution
-        '''
-
-        for tour in tours:
-            for u, v in tour:
-                self._model.x[u, v] = self._model.y[u] = 0
-
-        for u, v in self._initial_arcs:
-            self._model.x[u, v] = self._model.y[u] = 1
 
     def _eliminate_subtours_dfj(self, arcs, tours):
         ''' adds DFJ subtour elimination constraints
@@ -604,6 +518,35 @@ class EvaluationResult:
     peptide_to_gene = None
     immunogenicities = None
 
+    @staticmethod
+    def build(data, tour):
+        res = EvaluationResult()
+        res.vaccine = []
+        res.epitopes = []
+        res.peptide_to_gene = {}
+        res.peptide_to_hla = {}
+        res.immunogenicities = {}
+
+        for i, j in tour[:-1]:
+            pep = data.peptides[j]
+            cost = data.arc_cost[i, j]
+            idx = data.pep_to_index[pep]
+
+            # check overlaps are correct
+            assert i == 0 or cost == 9 or str(data.peptides[i])[int(cost)-9:] == str(pep)[:-int(cost)], (
+                'wrong overlap', str(data.peptides[i]), str(data.peptides[j]), int(9 - cost)
+            )
+
+            res.epitopes.append(pep)
+            res.peptide_to_gene[pep] = set([p.gene_id for p in pep.get_all_proteins()])
+            res.peptide_to_hla[pep] = set(data.peptide_bindings[idx])
+            res.vaccine.append(str(pep)[-int(cost):])
+            res.immunogenicities[pep] = data.immunogenicities[idx]
+
+        res.vaccine = ''.join(res.vaccine)
+
+        return res
+
     def pretty_print(self, print_fn=None):
         print_fn = print_fn or print
 
@@ -618,15 +561,20 @@ class EvaluationResult:
             ))
 
         print_fn('')
-        genes_covered = sorted(reduce(lambda r, s: r | s, self.peptide_to_gene.values()))
-        alleles_covered = sorted(map(str, reduce(lambda r, s: r | s, self.peptide_to_hla.values())))
-        compression = 1 - float(len(self.vaccine)) / sum(len(str(e)) for e in self.epitopes)
+        genes_covered = sorted(set(str(g) for gl in self.peptide_to_gene.values() for g in gl))
+        alleles_covered = sorted(set(str(a) for al in self.peptide_to_hla.values() for a in al))
+        epitope_length = sum(len(str(e)) for e in self.epitopes)
         print_fn('  Number of Aminoacids : %d' % len(self.vaccine))
         print_fn('    Number of Epitopes : %d'% len(self.epitopes))
-        print_fn('           Compression : %.2f %%' % (100 * compression))
+        print_fn('           Compression : %.2f %%' % (
+            100 * (1 - float(len(self.vaccine)) / epitope_length)
+        ))
+        print_fn('          Epitope Gain : %.2f' % (
+            (epitope_length - len(self.vaccine)) / (epitope_length / len(self.epitopes))
+        ))
         print_fn('  Total Immunogenicity : %.2f' % sum(self.immunogenicities.values()))
-        print_fn('      Covers %3d Genes : ' % len(genes_covered) + ', '.join(genes_covered))
-        print_fn('    Covers %3d Alleles : ' % len(alleles_covered) + ', '.join(alleles_covered))
+        print_fn('     %3d Genes Covered : ' % len(genes_covered) + ', '.join(genes_covered))
+        print_fn('   %3d Alleles Covered : ' % len(alleles_covered) + ', '.join(alleles_covered))
 
         print_fn('')
         print_fn('')

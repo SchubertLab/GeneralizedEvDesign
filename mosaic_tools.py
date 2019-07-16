@@ -1,10 +1,11 @@
-from __future__ import print_function
+from __future__ import print_function, division
 
 import pandas as pd
 import numpy as np
 from builtins import map
 
 import time
+from random import sample as random_sample
 import logging
 
 from collections import defaultdict
@@ -63,27 +64,22 @@ def get_alleles_and_thresholds():
     }
 
 
-def compute_consensus_and_conservation(sequences):
-    # warning: removes non-aminoacids (e.g. gaps) from the consensus sequence
+def compute_conserved_epitopes(sequences, min_conservation):
     length = max(map(len, sequences))
 
-    consensus, conservation = [], []
-    for i in range(length):
+    conservations_by_position = {}
+    for i in xrange(length - 8):
         freqs = defaultdict(int)
         for p in sequences:
-            if i < len(p):
-                freqs[p[i]] += 1
-        
-        cons = None
-        for k, v in freqs.items():
-            if cons is None or v > cons[1]:
-                cons = k, v
-        
-        if cons[0].isalpha():
-            consensus.append(cons[0])
-            conservation.append(float(cons[1]) / len(sequences))
+            if i >= len(p) - 9:
+                break
+            freqs[p[i:i+9]] += 1
+
+        conservations_by_position[i] = [
+            peptide for peptide, count in freqs.iteritems() if count / len(sequences) >= min_conservation
+        ]
     
-    return ''.join(consensus), conservation
+    return conservations_by_position
 
 
 def get_peptides(input_file, min_conservation):
@@ -91,52 +87,52 @@ def get_peptides(input_file, min_conservation):
     if len(proteins[0].transcript_id.split('.')) != 6:
         return list(generate_peptides_from_proteins(proteins, 9))
 
-    # the following code is specific to HIV1_2017_aligned_sequences.fasta 's format
-    # we first group proteins by gene and subtype
-    proteins_by_subtype_and_gene = defaultdict(list)
+    # the following code is specific to HIV1_2017_aligned_sequences.fasta 's header format
+    LOGGER.info('Computing peptide conservation...')
+    peptide_counts = {}  # TODO should probably cache this stuff
+    protein_count = 0
     for prot in proteins:
-        try:
-            subtype, country, strain1, strain2, accession, gene = prot.transcript_id.split('.')
-        except ValueError:
-            LOGGER.debug('Cannot parse %s', prot.transcript_id)
-            continue
+        # parse header
+        parts = prot.transcript_id.split('.')
+        subtype, country, accession, gene = parts[0], parts[1], parts[-2], parts[-1]
 
+        # update protein
+        prot._data = prot._data.replace('-', '')  # remove gaps from alignment
         prot.gene_id = gene
-        prot.transcript_id = accession
-        prot.vars = {
-            'subtype': subtype,
-            'country': country,
-            'strain1': strain1,
-            'strain2': strain2,
-            'accession': accession,
-            'gene': gene,
-        }
+        prot.transcript_id = accession + '.' + gene
+        protein_count += 1
 
-        proteins_by_subtype_and_gene[(subtype, gene)].append(prot)
+        # update conservations
+        # TODO divide by antigen?
+        for i in xrange(len(prot) - 8):
+            seq = str(prot[i:i+9])
+            if seq not in peptide_counts:
+                pep = Peptide(seq)
+                peptide_counts[pep] = 0
 
-    # then for each gene and subtype we compute the consensus sequence and aminoacid conservation
-    # and extract conserved peptides from the consensus sequence 
-    peptides = {}
-    for (subtype, gene), pros in proteins_by_subtype_and_gene.iteritems():
-        if len(pros) > 10:
-            LOGGER.debug('Generating conserved consensus peptides for gene %s of subtype %s (%d proteins)',
-                         gene, subtype, len(pros))
-        else:
-            LOGGER.debug('Not enough proteins (%d) to generate a reliable consensus for gene %s of subtype %s',
-                         len(pros), gene, subtype)
-            continue
+            pep.proteins[prot.transcript_id] = prot
+            pep.proteinPos[prot.transcript_id].append(i)
+            peptide_counts[pep] += 1
 
-        consensus, conservation = compute_consensus_and_conservation(pros)
-        protein = Protein(consensus, gene_id=gene, transcript_id='%s-%s' % (subtype, gene))
-        for i in xrange(len(consensus) - 8):
-            if all(c >= min_conservation for c in conservation[i:i + 9]):
-                seq = consensus[i:i + 9]
-                if seq not in peptides:
-                    peptides[seq] = Peptide(seq)
-                peptides[seq].proteins[protein.transcript_id] = protein
-                peptides[seq].proteinPos[protein.transcript_id].append(i)
+    LOGGER.info('Loaded %d proteins and %d peptides', protein_count, len(peptide_counts))
+    
+    # find sufficiently conserved peptides
+    conserved_peptides = []
+    if 0 < min_conservation <= 1:   # proportion if between 0 and 1
+        for peptide, count in peptide_counts.iteritems():
+            cons = count / protein_count
+            conserved_peptides.append(peptide)
+        LOGGER.info('%d peptides above conservation threshold', len(conserved_peptides))
+    elif min_conservation > 1:      # top-n if larger than 1
+        conserved_peptides = sorted(
+            peptide_counts.keys(), key=peptide_counts.get, reverse=True
+        )[:int(min_conservation)]
+        LOGGER.info('%d peptides have a conservation above %.2f %%',
+                    min_conservation, 100 * peptide_counts[conserved_peptides[-1]] / protein_count)
 
-    return peptides.values()
+    if not conserved_peptides:
+        raise RuntimeError('Improper conservation threshold, no peptides selected')
+    return conserved_peptides
 
 
 def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
@@ -227,7 +223,6 @@ def design_vaccine(input_sequences, solver, verbose, randomize, binding_affiniti
     program_start_time = time.time()
 
     peptides = get_peptides(input_sequences, min_conservation)
-    LOGGER.info('%d peptides generated', len(peptides))
     bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize, binding_affinities)
 
     solver_cls, solver_kwargs = get_solver_class(solver)
@@ -250,11 +245,11 @@ def design_vaccine(input_sequences, solver, verbose, randomize, binding_affiniti
     result.pretty_print(LOGGER.info)
 
     LOGGER.info('==== Stopwatch')
-    LOGGER.info('Total time           : %.2f s', solver_end_time - program_start_time)
-    LOGGER.info('Inputs preparation   : %.2f s', solver_creation_time - program_start_time)
-    LOGGER.info('Pre-processing       : %.2f s', solver_build_time - solver_creation_time)
-    LOGGER.info('Model creation time  : %.2f s', solver_start_time - solver_build_time)
-    LOGGER.info('Solving time         : %.2f s', solver_end_time - solver_start_time)
+    LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)
+    LOGGER.info('  Inputs preparation : %.2f s', solver_creation_time - program_start_time)
+    LOGGER.info('      Pre-processing : %.2f s', solver_build_time - solver_creation_time)
+    LOGGER.info(' Model creation time : %.2f s', solver_start_time - solver_build_time)
+    LOGGER.info('        Solving time : %.2f s', solver_end_time - solver_start_time)
 
 
 @main.command()
@@ -262,17 +257,34 @@ def design_vaccine(input_sequences, solver, verbose, randomize, binding_affiniti
 @click.argument('epitopes', nargs=-1)
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
-def inspect_vaccine(input_sequences, epitopes, min_conservation, verbose):
+@click.option('--random', '-r', default=0, help='Create a vaccine with a random number of epitopes')
+@click.option('--greedy', '-g', default=0, help='Create a vaccine with the most immunogenic epitopes')
+def inspect_vaccine(input_sequences, epitopes, min_conservation, verbose, random, greedy):
     logging.basicConfig(level=(logging.DEBUG) if verbose else logging.INFO,
                         format='%(asctime)s %(levelname)s: %(message)s')
     global LOGGER
     LOGGER = logging.getLogger('inspect-vaccine')
+
+    if random > 0 and (epitopes or greedy):
+        LOGGER.warning('Both epitopes and a vaccine generation strategy specified! I will use the given epitopes')
+    elif random <= 0 and not epitopes and not greedy:
+        LOGGER.error('Neither a vaccine strategy or the epitopes were specified.')
+        return
 
     peptides = get_peptides(input_sequences, min_conservation)
     LOGGER.info('%d peptides generated', len(peptides))
     bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize=None, bindings_path=None)
 
     data = DataContainer(bindings, thresh)
+
+    if not epitopes:
+        if random > 0:
+            LOGGER.info('Selecting %d random peptides', random)
+            epitopes = list(map(str, random_sample(data.peptides, random)))
+        elif greedy > 0:
+            LOGGER.info('Selecting the %d most immunogenic peptides', greedy)
+            epitopes = list(sorted(data.peptides[1:], key=lambda i: data.immunogenicities[data.pep_to_index[i]],
+                                   reverse=True))[:greedy]
 
     tour = []
     last = 0

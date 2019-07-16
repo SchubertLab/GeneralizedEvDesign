@@ -314,7 +314,7 @@ class MosaicVaccineILP:
             if self._max_vaccine_epitopes <= 1:
                 max_epitopes = int(len(self._data.peptides) * self._max_vaccine_epitopes)
             else:
-                max_epitopes = self._max_vaccine_epitopes
+                max_epitopes = int(self._max_vaccine_epitopes)
 
             self.logger.info('Vaccine will have at most %d epitopes', max_epitopes)
             self._model.k = aml.Param(initialize=max_epitopes, within=aml.PositiveIntegers)
@@ -328,7 +328,7 @@ class MosaicVaccineILP:
             if self._min_allele_coverage <= 1:
                 min_alleles = int(len(self._data.alleles) * self._min_allele_coverage)
             else:
-                min_alleles = self._min_allele_coverage
+                min_alleles = int(self._min_allele_coverage)
 
             self.logger.info('Vaccine will cover at least %d alleles', min_alleles)
             self._model.t_allele = aml.Param(initialize=min_alleles, within=aml.NonNegativeIntegers)
@@ -348,7 +348,7 @@ class MosaicVaccineILP:
             if self._min_antigen_coverage <= 1:
                 min_antigens = int(len(self._data.all_genes) * self._min_antigen_coverage)
             else:
-                min_antigens = self._min_antigen_coverage
+                min_antigens = int(self._min_antigen_coverage)
 
             self.logger.info('Vaccine will cover at least %d antigens', min_antigens)
             self._model.t_var = aml.Param(initialize=min_antigens, within=aml.NonNegativeIntegers)

@@ -9,7 +9,7 @@ import logging
 
 from collections import defaultdict
 from Fred2.Core.Peptide import Peptide
-from mosaic_vaccine_ilp import MosaicVaccineILP
+from mosaic_vaccine_ilp import MosaicVaccineILP, DataContainer, EvaluationResult
 from MosaicVaccineGreedy import MosaicVaccineGreedy
 from Fred2.Core import Protein, Allele, Peptide
 from Fred2.Core import generate_peptides_from_proteins
@@ -22,6 +22,11 @@ import Fred2
 
 
 LOGGER = None
+
+
+@click.group()
+def main():
+    pass
 
 
 def get_alleles_and_thresholds():
@@ -186,7 +191,7 @@ def get_solver_class(solver):
 
     if solver == 'gcb':
         solver_cls = MosaicVaccineGreedy
-        raise NotImplementedError()
+        solver_kwargs['processes'] = 1
     else:
         solver_cls = MosaicVaccineILP
         solver_kwargs['model_type'] = solver
@@ -194,8 +199,8 @@ def get_solver_class(solver):
     return solver_cls, solver_kwargs
 
 
-@click.command()
-@click.argument('input-file', type=click.Path('r'))
+@main.command()
+@click.argument('input-sequences', type=click.Path('r'))
 @click.argument('solver', type=click.Choice([
     'gcb',      # Generalized cost benefit heuristic
     'dfj',      # ILP solver with Dantzig-Fulkerson-Johnson subtour elimination constraints added lazily
@@ -210,18 +215,18 @@ def get_solver_class(solver):
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 @click.option('--randomize', '-r', default=0.0, help='Randomly assign affinities and select a given portion of epitopes')
-def main(input_file, solver, verbose, randomize, binding_affinities,
-         max_aminoacids, max_epitopes, min_alleles, min_antigens, min_conservation):
+def design_vaccine(input_sequences, solver, verbose, randomize, binding_affinities,
+                   max_aminoacids, max_epitopes, min_alleles, min_antigens, min_conservation):
 
     logging.basicConfig(level=(logging.DEBUG) if verbose else logging.INFO,
                         format='%(asctime)s %(levelname)s: %(message)s')
 
     global LOGGER
-    LOGGER = logging.getLogger('design-mosaic')
+    LOGGER = logging.getLogger('design-vaccine')
 
     program_start_time = time.time()
 
-    peptides = get_peptides(input_file, min_conservation)
+    peptides = get_peptides(input_sequences, min_conservation)
     LOGGER.info('%d peptides generated', len(peptides))
     bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize, binding_affinities)
 
@@ -242,7 +247,8 @@ def main(input_file, solver, verbose, randomize, binding_affinities,
     result = solver.solve()
     solver_end_time = time.time()
 
-    result.pretty_print(LOGGER.info)
+    #result.pretty_print(LOGGER.info)
+    print(result)
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('Total time           : %.2f s', solver_end_time - program_start_time)
@@ -250,6 +256,36 @@ def main(input_file, solver, verbose, randomize, binding_affinities,
     LOGGER.info('Pre-processing       : %.2f s', solver_build_time - solver_creation_time)
     LOGGER.info('Model creation time  : %.2f s', solver_start_time - solver_build_time)
     LOGGER.info('Solving time         : %.2f s', solver_end_time - solver_start_time)
+
+
+@main.command()
+@click.argument('input-sequences', type=click.Path('r'))
+@click.argument('epitopes', nargs=-1)
+@click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
+@click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
+def inspect_vaccine(input_sequences, epitopes, min_conservation, verbose):
+    global LOGGER
+    LOGGER = logging.getLogger('inspect-vaccine')
+
+    peptides = get_peptides(input_sequences, min_conservation)
+    LOGGER.info('%d peptides generated', len(peptides))
+    bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize=None, bindings_path=None)
+
+    data = DataContainer(bindings, thresh)
+
+    tour = []
+    last = 0
+    for ep in epitopes:
+        if ep not in data.pep_to_index:
+            LOGGER.error('Peptide not found: %s', ep)
+            return
+        idx = data.pep_to_index[ep]
+        tour.append((last, idx))
+        last = idx
+    tour.append((last, 0))
+
+    result = EvaluationResult.build(data, tour)
+    result.pretty_print(LOGGER.info)
 
 
 if __name__ == '__main__':

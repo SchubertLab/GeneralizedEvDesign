@@ -31,12 +31,11 @@ import time
 import numpy as np
 import pyomo.environ as aml
 import pyomo.kernel as pmo
-from pyomo.core.expr.numeric_expr import SumExpression
-from pyomo.opt import SolverFactory, TerminationCondition
-
 from Fred2.Core.Result import EpitopePredictionResult
 from Fred2.Utility import generate_overlap_graph
 from Fred2.Utility import solve_TSP_LKH as _solve_tsp
+from pyomo.core.expr.numeric_expr import SumExpression
+from pyomo.opt import SolverFactory, TerminationCondition
 
 
 class DataContainer:
@@ -208,8 +207,8 @@ class MosaicVaccineILP:
     def __init__(self, predicted_affinities, affinity_threshold=None,
                  max_vaccine_aminoacids=100, max_vaccine_epitopes=None,
                  min_allele_coverage=None, min_antigen_coverage=None,
-                 min_epitope_conservation=None, verbosity=0,
-                 model_type='dfj', solver='gurobi_persistent'):
+                 min_epitope_conservation=None, model_type='dfj',
+                 solver='gurobi_persistent'):
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -225,7 +224,6 @@ class MosaicVaccineILP:
         self._model_type = model_type
         self._model = None
         self._solver = SolverFactory(solver)
-        self._verbosity = verbosity
         self._result = None
 
         # desired vaccine properties
@@ -237,6 +235,7 @@ class MosaicVaccineILP:
 
     def build_model(self):
         self.logger.info('Building model...')
+        self._initial_peptides, self._initial_arcs = self._find_initial_solution()
 
         self._model = aml.ConcreteModel()
         self._build_base_tsp_model()
@@ -261,8 +260,10 @@ class MosaicVaccineILP:
         self._model.d = aml.Param(self._model.Arcs, initialize=lambda model, i, j: self._data.arc_cost[i][j])
 
         # indicator variables for nodes and arcs
-        self._model.x = aml.Var(self._model.Arcs, domain=aml.Binary, bounds=(0, 1), initialize=0)
-        self._model.y = aml.Var(self._model.Nodes, domain=aml.Binary, initialize=0)
+        self._model.x = aml.Var(self._model.Arcs, domain=aml.Binary, bounds=(0, 1),
+                                initialize=lambda model, u, v: (u, v) in self._initial_arcs)
+        self._model.y = aml.Var(self._model.Nodes, domain=aml.Binary,
+                                initialize=lambda model, u: u in self._initial_peptides)
 
         # node potentials necessary for MTZ subtour elimination constraints
         if self._model_type.startswith('mtz'):
@@ -371,6 +372,48 @@ class MosaicVaccineILP:
         #    self.model.t_c = aml.Param(initialize=self._min_epitope_conservation, within=aml.NonNegativeReals)
         #    self.model.EpitopeConsConst = aml.Constraint(self.model.Nodes, rule=lambda model, e: (
         #        None, (1 - model.c[e]) * model.y[e] - (1 - model.t_c), 0.0))
+        
+    def _find_initial_solution(self):
+        ''' find an initial solution to initialize the variables
+            greedily select the peptides with highest immunogenicity
+            until the maximum length of the vaccine is reached
+
+            returns the set of epitopes and the set of arcs
+        '''
+        sorted_by_immunogenicity = sorted(
+            self._data.peptides,
+            key=lambda pep: self._data.immunogenicities[self._data.pep_to_index.get(pep, 0)],
+            reverse=True
+        )
+
+        solution_peptides, solution_arcs = [0], []
+        aminoacids_length = total_immunogenicity = 0
+        for i, pep in enumerate(sorted_by_immunogenicity):
+            if pep == 'start':
+                break
+
+            if self._max_vaccine_epitopes > 0 and i >= self._max_vaccine_epitopes:
+                break
+
+            idx = self._data.pep_to_index[pep]
+            arc_cost = self._data.arc_cost[solution_peptides[-1], idx]
+            if self._max_vaccine_aminoacids > 0 and aminoacids_length + arc_cost > self._max_vaccine_aminoacids:
+                break
+
+            aminoacids_length += arc_cost
+            total_immunogenicity += self._data.immunogenicities[idx]
+            solution_arcs.append((solution_peptides[-1], idx))
+            solution_peptides.append(idx)
+
+        solution_arcs.append((solution_peptides[-1], 0))
+        self.logger.debug('The model will be initialized with the following feasible '
+                          'solution with cost %d and immunogenicity %.2f:', aminoacids_length, total_immunogenicity)
+        for u, v in solution_arcs:
+            self.logger.debug('    %5d (%9s) -> %5d (%9s) (cost: %2d, immunogenicity: %4.2f)',
+                              u, self._data.peptides[u], v, self._data.peptides[v],
+                              self._data.arc_cost[u, v], self._data.immunogenicities[v])
+
+        return set(solution_peptides), set(solution_arcs)
 
     def solve(self, options=None):
         # if logging is configured, gurobipy will print messages there *and* on stdout
@@ -444,8 +487,7 @@ class MosaicVaccineILP:
             else:
                 break
 
-        if self._verbosity > 0:
-            res.write(num=1)
+        res.write(num=1)
 
         self.logger.info('Solved successfully')
         self._result = EvaluationResult.build(self._data, tours[0])

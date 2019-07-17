@@ -1,33 +1,49 @@
-from __future__ import print_function, division
+from __future__ import division, print_function
 
-import pandas as pd
-import numpy as np
-from builtins import map
-
-import time
-from random import sample as random_sample
 import logging
-
+import os
+import time
+from builtins import map
 from collections import defaultdict
-from Fred2.Core.Peptide import Peptide
-from mosaic_vaccine_ilp import MosaicVaccineILP, DataContainer, EvaluationResult
-from MosaicVaccineGreedy import MosaicVaccineGreedy
-from Fred2.Core import Protein, Allele, Peptide
-from Fred2.Core import generate_peptides_from_proteins
-from Fred2.IO import FileReader
-from Fred2.EpitopePrediction import EpitopePredictorFactory, EpitopePredictionResult
-from Fred2.EpitopeSelection.PopCover import PopCover
-from Fred2.Utility import generate_overlap_graph
+from random import sample as random_sample
+
 import click
 import Fred2
+import numpy as np
+import pandas as pd
+from Fred2.Core import (Allele, Peptide, Protein,
+                        generate_peptides_from_proteins)
+from Fred2.Core.Peptide import Peptide
+from Fred2.EpitopePrediction import (EpitopePredictionResult,
+                                     EpitopePredictorFactory)
+from Fred2.EpitopeSelection.PopCover import PopCover
+from Fred2.IO import FileReader
+from Fred2.Utility import generate_overlap_graph
+
+from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
+                                MosaicVaccineILP)
+from MosaicVaccineGreedy import MosaicVaccineGreedy
 
 
 LOGGER = None
 
 
 @click.group()
-def main():
-    pass
+@click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
+def main(verbose):
+    global LOGGER
+    LOGGER = logging.getLogger('mosaic-tools')
+    LOGGER.setLevel((logging.DEBUG) if verbose else logging.INFO)
+
+    fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    LOGGER.addHandler(sh)
+
+    fh = logging.FileHandler('last-run.log', 'w')
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    LOGGER.addHandler(fh)
 
 
 def get_alleles_and_thresholds():
@@ -41,7 +57,7 @@ def get_alleles_and_thresholds():
         Allele('A*24:02', 12.905600 / 100.0):   1.15830, 
         Allele('A*31:01',  2.433630 / 100.0):   0.09604, 
         Allele('A*68:01',  1.769910 / 100.0):   2.39910, 
-        Allele('B*04:01',  1.548670 / 100.0):   5.22380, 
+        #Allele('B*04:01',  1.548670 / 100.0):   5.22380,   # not supported by netMHCpan
         Allele('B*07:02',  3.613570 / 100.0):   1.62320, 
         Allele('B*08:01',  2.949850 / 100.0):   0.07150, 
         Allele('B*15:01',  2.064900 / 100.0):   0.21666, 
@@ -64,24 +80,6 @@ def get_alleles_and_thresholds():
     }
 
 
-def compute_conserved_epitopes(sequences, min_conservation):
-    length = max(map(len, sequences))
-
-    conservations_by_position = {}
-    for i in xrange(length - 8):
-        freqs = defaultdict(int)
-        for p in sequences:
-            if i >= len(p) - 9:
-                break
-            freqs[p[i:i+9]] += 1
-
-        conservations_by_position[i] = [
-            peptide for peptide, count in freqs.iteritems() if count / len(sequences) >= min_conservation
-        ]
-    
-    return conservations_by_position
-
-
 def get_peptides(input_file, min_conservation):
     proteins = FileReader.read_fasta(input_file, in_type=Protein)
     if len(proteins[0].transcript_id.split('.')) != 6:
@@ -97,7 +95,7 @@ def get_peptides(input_file, min_conservation):
         subtype, country, accession, gene = parts[0], parts[1], parts[-2], parts[-1]
 
         # update protein
-        prot._data = prot._data.replace('-', '')  # remove gaps from alignment
+        prot._data = prot._data.replace('-', '').replace('*', '')  # remove non-aminoacids from alignment
         prot.gene_id = gene
         prot.transcript_id = accession + '.' + gene
         protein_count += 1
@@ -139,9 +137,10 @@ def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
     ''' can either provide realistic binding affinities and thresholds, or
         use randomized values (for benchmarking purposes)
     '''
+    LOGGER.info('Generating binding affinities...')
     allele_thresholds = get_alleles_and_thresholds()
     if not bindings_path:
-        bindings = EpitopePredictorFactory('BIMAS').predict(peptides, allele_thresholds.keys())
+        bindings = EpitopePredictorFactory('netmhcpan').predict(peptides, allele_thresholds.keys())
     else:
         bindings = pd.read_csv(bindings_path)
         bindings['Seq'] = list(map(Peptide, bindings['Seq']))  # we don't have source protein
@@ -177,7 +176,7 @@ def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
         thresh = allele_thresholds
 
     if not bindings_path:
-        bindings.to_csv('resources/bindings.csv')
+        bindings.to_csv('dev/bindings.csv')
 
     return bindings, thresh
 
@@ -209,16 +208,9 @@ def get_solver_class(solver):
 @click.option('--min-alleles', '-A', default=0.0, help='Minimum number of alleles to cover with the vaccine')
 @click.option('--min-antigens', '-g', default=0.0, help='Minimum antigens to cover with the vaccine')
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
-@click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 @click.option('--randomize', '-r', default=0.0, help='Randomly assign affinities and select a given portion of epitopes')
-def design_vaccine(input_sequences, solver, verbose, randomize, binding_affinities,
-                   max_aminoacids, max_epitopes, min_alleles, min_antigens, min_conservation):
-
-    logging.basicConfig(level=(logging.DEBUG) if verbose else logging.INFO,
-                        format='%(asctime)s %(levelname)s: %(message)s')
-
-    global LOGGER
-    LOGGER = logging.getLogger('design-vaccine')
+def design_vaccine(input_sequences, solver, randomize, binding_affinities, max_aminoacids, max_epitopes,
+                   min_alleles, min_antigens, min_conservation):
 
     program_start_time = time.time()
 
@@ -232,7 +224,7 @@ def design_vaccine(input_sequences, solver, verbose, randomize, binding_affiniti
     solver = solver_cls(
         bindings, thresh, max_vaccine_aminoacids=max_aminoacids, max_vaccine_epitopes=max_epitopes,
         min_allele_coverage=min_alleles, min_antigen_coverage=min_antigens,
-        min_epitope_conservation=None, verbosity=verbose, **solver_kwargs
+        min_epitope_conservation=None, **solver_kwargs
     )
 
     solver_build_time = time.time()
@@ -256,15 +248,9 @@ def design_vaccine(input_sequences, solver, verbose, randomize, binding_affiniti
 @click.argument('input-sequences', type=click.Path('r'))
 @click.argument('epitopes', nargs=-1)
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
-@click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 @click.option('--random', '-r', default=0, help='Create a vaccine with a random number of epitopes')
 @click.option('--greedy', '-g', default=0, help='Create a vaccine with the most immunogenic epitopes')
-def inspect_vaccine(input_sequences, epitopes, min_conservation, verbose, random, greedy):
-    logging.basicConfig(level=(logging.DEBUG) if verbose else logging.INFO,
-                        format='%(asctime)s %(levelname)s: %(message)s')
-    global LOGGER
-    LOGGER = logging.getLogger('inspect-vaccine')
-
+def inspect_vaccine(input_sequences, epitopes, min_conservation, random, greedy):
     if random > 0 and (epitopes or greedy):
         LOGGER.warning('Both epitopes and a vaccine generation strategy specified! I will use the given epitopes')
     elif random <= 0 and not epitopes and not greedy:

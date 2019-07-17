@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import pickle
 
 import logging
 import os
@@ -40,7 +41,7 @@ def main(verbose):
     sh.setFormatter(fmt)
     LOGGER.addHandler(sh)
 
-    fh = logging.FileHandler('last-run.log', 'w')
+    fh = logging.FileHandler('dev/last-run.log', 'w')
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(fmt)
     LOGGER.addHandler(fh)
@@ -80,7 +81,13 @@ def get_alleles_and_thresholds():
     }
 
 
-def get_peptides(input_file, min_conservation):
+def get_peptides(input_file, min_conservation, peptides_path):
+    if os.path.exists(peptides_path):
+        with open(peptides_path) as f:
+            conserved_peptides = pickle.load(f)
+        LOGGER.info('Loaded %d conserved peptides from %s', len(conserved_peptides), peptides_path)
+        return conserved_peptides
+    
     proteins = FileReader.read_fasta(input_file, in_type=Protein)
     if len(proteins[0].transcript_id.split('.')) != 6:
         return list(generate_peptides_from_proteins(proteins, 9))
@@ -130,6 +137,12 @@ def get_peptides(input_file, min_conservation):
 
     if not conserved_peptides:
         raise RuntimeError('Improper conservation threshold, no peptides selected')
+    
+    if peptides_path:
+        with open(peptides_path, 'w') as f:
+            pickle.dump(conserved_peptides, f)
+        LOGGER.info('Conserved peptides saved to %s', peptides_path)
+
     return conserved_peptides
 
 
@@ -147,7 +160,7 @@ def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
         bindings = bindings.set_index(['Seq', 'Method'])
         bindings.columns = list(map(Allele, bindings.columns))
         bindings = EpitopePredictionResult(bindings)
-        LOGGER.info('Binding affinities loaded from', bindings_path)
+        LOGGER.info('Binding affinities loaded from %s', bindings_path)
 
     if randomize > 0:
         if randomize > 1:
@@ -175,8 +188,9 @@ def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
     else:
         thresh = allele_thresholds
 
-    if not bindings_path:
-        bindings.to_csv('dev/bindings.csv')
+    if randomize <= 0 and bindings_path:
+        bindings.to_csv(bindings_path)
+        LOGGER.info('Binding affinities saved to %s', bindings_path)
 
     return bindings, thresh
 
@@ -202,7 +216,8 @@ def get_solver_class(solver):
     'mtz-l',    # ILP solver with Miller-Tucker-Zemlin subtour elimination constraints added lazily
     'mtz-g',    # ILP solver with all Miller-Tucker-Zemlin suboutr elimination constraints added at the beginning
 ]))
-@click.option('--binding-affinities', '-b', type=click.Path('r'), help='Pre-computed binding HLA-peptide binding affinities')
+@click.option('--binding-affinities', '-b', type=click.Path(), help='Load (if exists) or save (if not) HLA-peptide binding affinities')
+@click.option('--peptides', '-p', type=click.Path(), help='Load (if exists) or save (if not) computed peptides')
 @click.option('--max-aminoacids', '-a', default=15, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=0.0, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', '-A', default=0.0, help='Minimum number of alleles to cover with the vaccine')
@@ -210,11 +225,11 @@ def get_solver_class(solver):
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--randomize', '-r', default=0.0, help='Randomly assign affinities and select a given portion of epitopes')
 def design_vaccine(input_sequences, solver, randomize, binding_affinities, max_aminoacids, max_epitopes,
-                   min_alleles, min_antigens, min_conservation):
+                   min_alleles, min_antigens, min_conservation, peptides):
 
     program_start_time = time.time()
 
-    peptides = get_peptides(input_sequences, min_conservation)
+    peptides = get_peptides(input_sequences, min_conservation, peptides)
     bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize, binding_affinities)
 
     solver_cls, solver_kwargs = get_solver_class(solver)

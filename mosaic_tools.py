@@ -53,54 +53,52 @@ def main(verbose):
 
 
 def get_alleles_and_thresholds():
-    return {     # According to Table 1 in Vider-Shalit et al. 2007
-        #                  population cov.  :   threshold
-        Allele('A*01:01',  4.498520 / 100.0):   0.08710, 
-        Allele('A*02:01', 10.693200 / 100.0):   1.25720, 
-        Allele('A*02:05',  0.884956 / 100.0):   0.41790, 
-        Allele('A*03:01',  3.687320 / 100.0):   0.05527, 
-        Allele('A*11:01',  7.522120 / 100.0):   0.04356, 
-        Allele('A*24:02', 12.905600 / 100.0):   1.15830, 
-        Allele('A*31:01',  2.433630 / 100.0):   0.09604, 
-        Allele('A*68:01',  1.769910 / 100.0):   2.39910, 
-        #Allele('B*04:01',  1.548670 / 100.0):   5.22380,   # not supported by netMHCpan
-        Allele('B*07:02',  3.613570 / 100.0):   1.62320, 
-        Allele('B*08:01',  2.949850 / 100.0):   0.07150, 
-        Allele('B*15:01',  2.064900 / 100.0):   0.21666, 
-        Allele('B*27:02',  0.147493 / 100.0):  50.04300, 
-        Allele('B*27:05',  1.106190 / 100.0): 163.86800, 
-        Allele('B*35:01',  3.244840 / 100.0):   3.20170, 
-        Allele('B*37:01',  0.442478 / 100.0):   1.42390, 
-        Allele('B*38:01',  0.663717 / 100.0):   7.92910, 
-        Allele('B*39:01',  1.769910 / 100.0):   4.73410, 
-        Allele('B*40:01',  5.309730 / 100.0):  21.17820, 
-        Allele('B*40:06',  0.516224 / 100.0):   1.04370, 
-        Allele('B*44:03',  2.212390 / 100.0):   6.20900, 
-        Allele('B*51:01',  3.244840 / 100.0):  39.20670, 
-        Allele('B*51:02',  0.221239 / 100.0): 155.05000, 
-        Allele('B*52:01',  0.884956 / 100.0):   8.58850, 
-        Allele('B*58:01',  2.654870 / 100.0):  13.35620, 
-        Allele('C*04:01',  8.259590 / 100.0):   4.06100, 
-        Allele('C*06:02',  5.088500 / 100.0):   2.16860, 
-        Allele('C*07:02',  9.660770 / 100.0):   2.18310, 
+    return {
+        Allele('A*01:01',  4.498520 / 100.0): 625,
+        Allele('A*02:01', 10.693200 / 100.0): 625,
+        Allele('A*02:05',  0.884956 / 100.0): 625,
+        Allele('A*03:01',  3.687320 / 100.0): 625,
+        Allele('A*11:01',  7.522120 / 100.0): 625,
+        Allele('A*24:02', 12.905600 / 100.0): 625,
+        Allele('A*31:01',  2.433630 / 100.0): 625,
+        Allele('A*68:01',  1.769910 / 100.0): 625,
+        Allele('B*07:02',  3.613570 / 100.0): 625,
+        Allele('B*08:01',  2.949850 / 100.0): 625,
+        Allele('B*15:01',  2.064900 / 100.0): 625,
+        Allele('B*27:02',  0.147493 / 100.0): 625,
+        Allele('B*27:05',  1.106190 / 100.0): 625,
+        Allele('B*35:01',  3.244840 / 100.0): 625,
+        Allele('B*37:01',  0.442478 / 100.0): 625,
+        Allele('B*38:01',  0.663717 / 100.0): 625,
+        Allele('B*39:01',  1.769910 / 100.0): 625,
+        Allele('B*40:01',  5.309730 / 100.0): 625,
+        Allele('B*40:06',  0.516224 / 100.0): 625,
+        Allele('B*44:03',  2.212390 / 100.0): 625,
+        Allele('B*51:01',  3.244840 / 100.0): 625,
+        Allele('B*51:02',  0.221239 / 100.0): 625,
+        Allele('B*52:01',  0.884956 / 100.0): 625,
+        Allele('B*58:01',  2.654870 / 100.0): 625,
+        Allele('C*04:01',  8.259590 / 100.0): 625,
+        Allele('C*06:02',  5.088500 / 100.0): 625,
+        Allele('C*07:02',  9.660770 / 100.0): 625,
     }
 
 
 def get_peptides(input_file, min_conservation, peptides_path):
     proteins = FileReader.read_fasta(input_file, in_type=Protein)
 
-    if os.path.exists(peptides_path):
+    if peptides_path and os.path.exists(peptides_path):
         LOGGER.info('Loading peptides from %s...', peptides_path)
         with open(peptides_path) as f:
             peptide_counts = pickle.load(f)
         protein_count = len(set(prot for pep in peptide_counts for prot in pep.proteins))
     else:
         LOGGER.info('Computing peptide conservation...')
-        peptide_counts = {}  # TODO should probably cache this stuff
+        peptide_counts = {}
         protein_count = 0
         for prot in proteins:
             protein_count += 1
-            prot._data = prot._data.replace('-', '').replace('*', '')  # remove non-aminoacids from alignment
+            prot._data = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
 
             # parse header
             parts = prot.transcript_id.split('.')
@@ -156,7 +154,7 @@ def get_binding_affinities_and_thresholds(peptides, bindings_path):
     LOGGER.info('Generating binding affinities...')
     allele_thresholds = get_alleles_and_thresholds()
 
-    if not os.path.exists(bindings_path):
+    if not bindings_path or not os.path.exists(bindings_path):
         bindings = EpitopePredictorFactory('netmhcpan').predict(peptides, allele_thresholds.keys())
         if bindings_path:
             bindings.to_csv(bindings_path)

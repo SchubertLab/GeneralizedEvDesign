@@ -80,21 +80,24 @@ class DataContainer:
         self.allele_bindings = {}
         self.peptide_bindings = {}
 
-        method = self.raw_affinities.index.values[0][1]  # TODO find better way of filtering by method
+        method = self.raw_affinities.index.values[0][1]
         self.logger.info('Using binding affinities from method "%s"', method)
+        assert method == 'netmhcpan', 'dont know how to compute thresholds for method %s' % method
+
         res_df = self.raw_affinities.xs(self.raw_affinities.index.values[0][1], level='Method')
-        threshold_mask = res_df.apply(lambda x: any(  # FIXME shouldn't we log-transform first if method is one of .... ?
-            x[allele] > self.thresh.get(allele, -float('inf'))
+        res_df = res_df.apply(lambda score: 50000**(1 - score))     # convert score to ic50 nM
+        threshold_mask = res_df.apply(lambda x: any(
+            x[allele] < self.thresh.get(allele, float('inf'))
             for allele in res_df.columns
         ), axis=1)
 
         if threshold_mask.sum() == 0:
-            raise ValueError('Binding affinity threshold too high, no peptides selected')
+            raise ValueError('Binding threshold too low, no peptides selected')
 
-        self.logger.info('%d peptides above threshold for at least one allele', threshold_mask.sum())
+        self.logger.info('%d peptides below threshold for at least one allele', threshold_mask.sum())
         self.logger.debug('Breakdown:')
         for col in res_df.columns:
-            self.logger.debug('    %s %d', col, np.sum(res_df[col] > self.thresh[col]))
+            self.logger.debug('    %s %d', col, np.sum(res_df[col] < self.thresh[col]))
 
         res_df = res_df[threshold_mask]
         for i, tup in enumerate(res_df.itertuples()):
@@ -103,21 +106,12 @@ class DataContainer:
             self.peptides.append(peptide)
             self.pep_to_index[peptide] = i
             immunogen = 0
-            for allele, bind_affinity in itr.izip(self.alleles, tup[1:]):
-                if method in ['smm', 'smmpmbec', 'arb', 'comblibsidney']:
-                    # log-transform binding strenghts and thresholds and clip in [0-1]
-                    bind_affinity = min(1., max(0.0, 1.0 - math.log(bind_affinity, 50000)))
-                    if allele in self.thresh:
-                        bind_thr = min(1., max(0.0, 1.0 - math.log(self.thresh.get(allele), 50000)))
-                    else:
-                        bind_thr = float('-inf')
-                else:
-                    bind_thr = self.thresh.get(allele)
-
-                if bind_affinity >= bind_thr:
+            for allele, ic50 in itr.izip(self.alleles, tup[1:]):
+                ic50_thr = self.thresh.get(allele, float('inf'))
+                if ic50 <= ic50_thr:
                     self.allele_bindings.setdefault(allele.name, set()).add(i)
                     self.peptide_bindings.setdefault(i, set()).add(allele)
-                    immunogen += self.allele_probs[allele] * bind_affinity
+                    immunogen = self.allele_probs[allele] * 50 / ic50
 
             self.immunogenicities.append(immunogen)
 
@@ -383,7 +377,7 @@ class MosaicVaccineILP:
         sorted_by_immunogenicity = sorted(
             self._data.peptides,
             key=lambda pep: self._data.immunogenicities[self._data.pep_to_index.get(pep, 0)],
-            reverse=True
+            reverse=True,
         )
 
         solution_peptides, solution_arcs = [0], []
@@ -463,7 +457,7 @@ class MosaicVaccineILP:
 
             self._solver.load_vars()
             arcs = self._extract_solution_from_model()
-            self.logger.debug('Solution contains the following arcs:', arcs)
+            self.logger.debug('Solution contains the following arcs: %s', arcs)
 
             tours = self._extract_tours_from_arcs(arcs)
             self.logger.debug('Solution contains the following tour(s):')

@@ -1,5 +1,9 @@
 from __future__ import division, print_function
-import pickle
+
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 import logging
 import os
@@ -33,8 +37,9 @@ LOGGER = None
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 def main(verbose):
     global LOGGER
-    LOGGER = logging.getLogger('mosaic-tools')
-    LOGGER.setLevel((logging.DEBUG) if verbose else logging.INFO)
+    level = (logging.DEBUG) if verbose else logging.INFO
+    LOGGER = logging.getLogger()
+    LOGGER.setLevel(level)
 
     fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
     sh = logging.StreamHandler()
@@ -82,42 +87,46 @@ def get_alleles_and_thresholds():
 
 
 def get_peptides(input_file, min_conservation, peptides_path):
-    if os.path.exists(peptides_path):
-        with open(peptides_path) as f:
-            conserved_peptides = pickle.load(f)
-        LOGGER.info('Loaded %d conserved peptides from %s', len(conserved_peptides), peptides_path)
-        return conserved_peptides
-    
     proteins = FileReader.read_fasta(input_file, in_type=Protein)
-    if len(proteins[0].transcript_id.split('.')) != 6:
-        return list(generate_peptides_from_proteins(proteins, 9))
 
-    # the following code is specific to HIV1_2017_aligned_sequences.fasta 's header format
-    LOGGER.info('Computing peptide conservation...')
-    peptide_counts = {}  # TODO should probably cache this stuff
-    protein_count = 0
-    for prot in proteins:
-        # parse header
-        parts = prot.transcript_id.split('.')
-        subtype, country, accession, gene = parts[0], parts[1], parts[-2], parts[-1]
+    if os.path.exists(peptides_path):
+        LOGGER.info('Loading peptides from %s...', peptides_path)
+        with open(peptides_path) as f:
+            peptide_counts = pickle.load(f)
+        protein_count = len(set(prot for pep in peptide_counts for prot in pep.proteins))
+    else:
+        LOGGER.info('Computing peptide conservation...')
+        peptide_counts = {}  # TODO should probably cache this stuff
+        protein_count = 0
+        for prot in proteins:
+            protein_count += 1
+            prot._data = prot._data.replace('-', '').replace('*', '')  # remove non-aminoacids from alignment
 
-        # update protein
-        prot._data = prot._data.replace('-', '').replace('*', '')  # remove non-aminoacids from alignment
-        prot.gene_id = gene
-        prot.transcript_id = accession + '.' + gene
-        protein_count += 1
+            # parse header
+            parts = prot.transcript_id.split('.')
+            if len(parts) > 4 and parts[0] == 'X':  # specific to hiv1_2017_aligned_sequences.fasta
+                subtype, country, accession, gene = parts[1], parts[2], parts[-2], parts[-1]
 
-        # update conservations
-        # TODO divide by antigen?
-        for i in xrange(len(prot) - 8):
-            seq = str(prot[i:i+9])
-            if seq not in peptide_counts:
-                pep = Peptide(seq)
-                peptide_counts[pep] = 0
+                # update protein
+                prot.gene_id = gene
+                prot.transcript_id = accession + '.' + gene
 
-            pep.proteins[prot.transcript_id] = prot
-            pep.proteinPos[prot.transcript_id].append(i)
-            peptide_counts[pep] += 1
+            # update conservations
+            # TODO divide by antigen?
+            for i in xrange(len(prot) - 8):
+                seq = str(prot[i:i+9])
+                if seq not in peptide_counts:
+                    pep = Peptide(seq)
+                    peptide_counts[pep] = 0
+
+                pep.proteins[prot.transcript_id] = prot
+                pep.proteinPos[prot.transcript_id].append(i)
+                peptide_counts[pep] += 1
+
+        if peptides_path:
+            with open(peptides_path, 'w') as f:
+                pickle.dump(peptide_counts, f)
+            LOGGER.info('All peptides saved to %s', peptides_path)
 
     LOGGER.info('Loaded %d proteins and %d peptides', protein_count, len(peptide_counts))
     
@@ -137,62 +146,31 @@ def get_peptides(input_file, min_conservation, peptides_path):
 
     if not conserved_peptides:
         raise RuntimeError('Improper conservation threshold, no peptides selected')
-    
-    if peptides_path:
-        with open(peptides_path, 'w') as f:
-            pickle.dump(conserved_peptides, f)
-        LOGGER.info('Conserved peptides saved to %s', peptides_path)
-
     return conserved_peptides
 
 
-def get_binding_affinities_and_thresholds(peptides, randomize, bindings_path):
+def get_binding_affinities_and_thresholds(peptides, bindings_path):
     ''' can either provide realistic binding affinities and thresholds, or
         use randomized values (for benchmarking purposes)
     '''
     LOGGER.info('Generating binding affinities...')
     allele_thresholds = get_alleles_and_thresholds()
-    if not bindings_path:
+
+    if not os.path.exists(bindings_path):
         bindings = EpitopePredictorFactory('netmhcpan').predict(peptides, allele_thresholds.keys())
+        if bindings_path:
+            bindings.to_csv(bindings_path)
+            LOGGER.info('Binding affinities saved to %s', bindings_path)
     else:
+        seq_to_peptide = {str(pep): pep for pep in peptides}
         bindings = pd.read_csv(bindings_path)
-        bindings['Seq'] = list(map(Peptide, bindings['Seq']))  # we don't have source protein
+        bindings['Seq'] = [seq_to_peptide[seq] for seq in bindings['Seq']]
         bindings = bindings.set_index(['Seq', 'Method'])
         bindings.columns = list(map(Allele, bindings.columns))
         bindings = EpitopePredictionResult(bindings)
         LOGGER.info('Binding affinities loaded from %s', bindings_path)
 
-    if randomize > 0:
-        if randomize > 1:
-            randomize = randomize / 100
-        if bindings_path:
-            LOGGER.warn('randomize and binding affinities both specified! The specified affinities will not')
-            LOGGER.warn('be overwritten, but randominze will not work as intended if the affinities are not')
-            LOGGER.warn('suitably randomized (i.e. uniformly between 0 and 1).')
-            LOGGER.warn('')
-            LOGGER.warn('To generate randomized affinities, run once with randomize and *without* binding affinities.')
-            LOGGER.warn('Randomized affinities will be generated and stored in "./resources/bindings.csv"')
-            LOGGER.warn('and can be loaded in subsequent runs.')
-            LOGGER.warn('')
-            LOGGER.warn('If you already did this, this warning is safe to ignore.')
-            LOGGER.warn('')
-
-        # chosen so that 100*randomize % of peptides have at least one allele
-        # with larger binding strength, assuming that these are uniform(0, 1)
-        tt = (1 - randomize)**(1.0 / len(allele_thresholds))
-        thresh = {}
-        for col in bindings.columns:
-            if not bindings_path:
-                bindings[col] = np.random.random(size=len(bindings))
-            thresh[col] = tt
-    else:
-        thresh = allele_thresholds
-
-    if randomize <= 0 and bindings_path:
-        bindings.to_csv(bindings_path)
-        LOGGER.info('Binding affinities saved to %s', bindings_path)
-
-    return bindings, thresh
+    return bindings, allele_thresholds
 
 
 def get_solver_class(solver):
@@ -223,14 +201,13 @@ def get_solver_class(solver):
 @click.option('--min-alleles', '-A', default=0.0, help='Minimum number of alleles to cover with the vaccine')
 @click.option('--min-antigens', '-g', default=0.0, help='Minimum antigens to cover with the vaccine')
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
-@click.option('--randomize', '-r', default=0.0, help='Randomly assign affinities and select a given portion of epitopes')
-def design_vaccine(input_sequences, solver, randomize, binding_affinities, max_aminoacids, max_epitopes,
+def design_vaccine(input_sequences, solver, binding_affinities, max_aminoacids, max_epitopes,
                    min_alleles, min_antigens, min_conservation, peptides):
 
     program_start_time = time.time()
 
     peptides = get_peptides(input_sequences, min_conservation, peptides)
-    bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize, binding_affinities)
+    bindings, thresh = get_binding_affinities_and_thresholds(peptides, binding_affinities)
 
     solver_cls, solver_kwargs = get_solver_class(solver)
     LOGGER.debug('Using solver %s', solver_cls)

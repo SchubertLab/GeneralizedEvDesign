@@ -53,6 +53,7 @@ def main(verbose):
 
 
 def get_alleles_and_thresholds():
+    # threshold in ic50 (lower is better)
     return {
         Allele('A*01:01',  4.498520 / 100.0): 625,
         Allele('A*02:01', 10.693200 / 100.0): 625,
@@ -84,20 +85,21 @@ def get_alleles_and_thresholds():
     }
 
 
-def get_peptides(input_file, min_conservation, peptides_path):
+def group_peptides_by_gene(input_file, peptides_path):
+    ''' reads the input proteins and generates 9mers
+        then counts pairs of (gene, peptide) and how many sequences for each gene
+    '''
     proteins = FileReader.read_fasta(input_file, in_type=Protein)
-
-    if peptides_path and os.path.exists(peptides_path):
+    if peptides_path and os.path.exists(peptides_path):  # load from cache (assumes cache is up to date)
         LOGGER.info('Loading peptides from %s...', peptides_path)
         with open(peptides_path) as f:
-            peptide_counts = pickle.load(f)
-        protein_count = len(set(prot for pep in peptide_counts for prot in pep.proteins))
+            sequence_count_by_gene, sequence_count_by_gene_and_peptide = pickle.load(f)
     else:
-        LOGGER.info('Computing peptide conservation...')
-        peptide_counts = {}
-        protein_count = 0
+        LOGGER.info('Generating peptides...')
+        peptides = {}
+        sequence_count_by_gene_and_peptide = {}
+        sequence_count_by_gene = {}
         for prot in proteins:
-            protein_count += 1
             prot._data = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
 
             # parse header
@@ -108,40 +110,63 @@ def get_peptides(input_file, min_conservation, peptides_path):
                 # update protein
                 prot.gene_id = gene
                 prot.transcript_id = accession + '.' + gene
+            else:
+                gene = ''
 
-            # update conservations
-            # TODO divide by antigen?
+            if gene not in sequence_count_by_gene_and_peptide:
+                sequence_count_by_gene_and_peptide[gene] = {}
+                sequence_count_by_gene[gene] = 0
+            sequence_count_by_gene[gene] += 1
+
+            # update counts
+            counted = set()
             for i in xrange(len(prot) - 8):
                 seq = str(prot[i:i+9])
-                if seq not in peptide_counts:
-                    pep = Peptide(seq)
-                    peptide_counts[pep] = 0
+
+                if seq not in peptides:
+                    peptides[seq] = Peptide(seq)
+
+                pep = peptides[seq]
+                if pep not in sequence_count_by_gene_and_peptide[gene]:
+                    sequence_count_by_gene_and_peptide[gene][pep] = 0
 
                 pep.proteins[prot.transcript_id] = prot
                 pep.proteinPos[prot.transcript_id].append(i)
-                peptide_counts[pep] += 1
+                if seq not in counted:  # only count peptides once per sequence
+                    sequence_count_by_gene_and_peptide[gene][pep] += 1
+                    counted.add(pep)
 
         if peptides_path:
             with open(peptides_path, 'w') as f:
-                pickle.dump(peptide_counts, f)
+                pickle.dump((sequence_count_by_gene, sequence_count_by_gene_and_peptide), f)
             LOGGER.info('All peptides saved to %s', peptides_path)
-
-    LOGGER.info('Loaded %d proteins and %d peptides', protein_count, len(peptide_counts))
     
-    # find sufficiently conserved peptides
-    conserved_peptides = []
-    if 0 < min_conservation <= 1:   # proportion if between 0 and 1
-        for peptide, count in peptide_counts.iteritems():
-            cons = count / protein_count
-            conserved_peptides.append(peptide)
-        LOGGER.info('%d peptides above conservation threshold', len(conserved_peptides))
-    elif min_conservation > 1:      # top-n if larger than 1
-        conserved_peptides = sorted(
-            peptide_counts.keys(), key=peptide_counts.get, reverse=True
-        )[:int(min_conservation)]
-        LOGGER.info('%d peptides have a conservation above %.2f %%',
-                    min_conservation, 100 * peptide_counts[conserved_peptides[-1]] / protein_count)
+    return sequence_count_by_gene, sequence_count_by_gene_and_peptide
 
+
+def get_peptides(input_file, min_conservation, peptides_path):
+    ''' peptide conservation is computed separately by gene
+    '''
+    sequence_count_by_gene, count_by_gene_and_peptide = group_peptides_by_gene(input_file, peptides_path)
+    LOGGER.info('Loaded %d proteins and %d peptides', sum(sequence_count_by_gene.values()),
+                sum(map(len, count_by_gene_and_peptide.values())))
+    
+    LOGGER.info('Computing conserved peptides...')
+    conserved_peptides = set()
+    if 0 < min_conservation <= 1:   # proportion if between 0 and 1
+        for gene, peptide_counts in count_by_gene_and_peptide.iteritems():
+            for peptide, count in peptide_counts.iteritems():
+                assert count <= sequence_count_by_gene[gene]
+                cons = count / sequence_count_by_gene[gene]
+                if cons >= min_conservation:
+                    conserved_peptides.add(peptide)
+    elif min_conservation > 1:      # top-n if larger than 1
+        for gene, peptide_counts in count_by_gene_and_peptide.iteritems():
+            conserved_peptides.update(sorted(
+                peptide_counts.keys(), key=peptide_counts.get, reverse=True
+            )[:int(min_conservation)])
+    
+    LOGGER.info('Found %d peptides above conservation threshold', len(conserved_peptides))
     if not conserved_peptides:
         raise RuntimeError('Improper conservation threshold, no peptides selected')
     return conserved_peptides

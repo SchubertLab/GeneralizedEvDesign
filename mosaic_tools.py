@@ -85,61 +85,57 @@ def get_alleles_and_thresholds():
     }
 
 
-def group_peptides_by_gene(input_file, peptides_path):
+def group_peptides_by_gene(input_file, save_counters):
     ''' reads the input proteins and generates 9mers
         then counts pairs of (gene, peptide) and how many sequences for each gene
     '''
     proteins = FileReader.read_fasta(input_file, in_type=Protein)
-    if peptides_path and os.path.exists(peptides_path):  # load from cache (assumes cache is up to date)
-        LOGGER.info('Loading peptides from %s...', peptides_path)
-        with open(peptides_path) as f:
-            sequence_count_by_gene, sequence_count_by_gene_and_peptide = pickle.load(f)
-    else:
-        LOGGER.info('Generating peptides...')
-        peptides = {}
-        sequence_count_by_gene_and_peptide = {}
-        sequence_count_by_gene = {}
-        for prot in proteins:
-            prot._data = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
 
-            # parse header
-            parts = prot.transcript_id.split('.')
-            if len(parts) > 4 and parts[0] == 'X':  # specific to hiv1_2017_aligned_sequences.fasta
-                subtype, country, accession, gene = parts[1], parts[2], parts[-2], parts[-1]
+    LOGGER.info('Generating peptides...')
+    peptides = {}
+    sequence_count_by_gene_and_peptide = {}
+    sequence_count_by_gene = {}
+    for prot in proteins:
+        prot._data = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
 
-                # update protein
-                prot.gene_id = gene
-                prot.transcript_id = accession + '.' + gene
-            else:
-                gene = ''
+        # parse header
+        parts = prot.transcript_id.split('.')
+        if len(parts) > 4 and parts[0] == 'X':  # specific to hiv1_2017_aligned_sequences.fasta
+            subtype, country, accession, gene = parts[1], parts[2], parts[-2], parts[-1]
 
-            if gene not in sequence_count_by_gene_and_peptide:
-                sequence_count_by_gene_and_peptide[gene] = {}
-                sequence_count_by_gene[gene] = 0
-            sequence_count_by_gene[gene] += 1
+            # update protein
+            prot.gene_id = gene
+            prot.transcript_id = accession + '.' + gene
+        else:
+            gene = ''
 
-            # update counts
-            counted = set()
-            for i in xrange(len(prot) - 8):
-                seq = str(prot[i:i+9])
+        if gene not in sequence_count_by_gene_and_peptide:
+            sequence_count_by_gene_and_peptide[gene] = {}
+            sequence_count_by_gene[gene] = 0
+        sequence_count_by_gene[gene] += 1
 
-                if seq not in peptides:
-                    peptides[seq] = Peptide(seq)
+        # update counts
+        counted = set()
+        for i in xrange(len(prot) - 8):
+            seq = str(prot[i:i+9])
 
-                pep = peptides[seq]
-                if pep not in sequence_count_by_gene_and_peptide[gene]:
-                    sequence_count_by_gene_and_peptide[gene][pep] = 0
+            if seq not in peptides:
+                peptides[seq] = Peptide(seq)
 
-                pep.proteins[prot.transcript_id] = prot
-                pep.proteinPos[prot.transcript_id].append(i)
-                if seq not in counted:  # only count peptides once per sequence
-                    sequence_count_by_gene_and_peptide[gene][pep] += 1
-                    counted.add(pep)
+            pep = peptides[seq]
+            if pep not in sequence_count_by_gene_and_peptide[gene]:
+                sequence_count_by_gene_and_peptide[gene][pep] = 0
 
-        if peptides_path:
-            with open(peptides_path, 'w') as f:
+            pep.proteins[prot.transcript_id] = prot
+            pep.proteinPos[prot.transcript_id].append(i)
+            if seq not in counted:  # only count peptides once per sequence
+                sequence_count_by_gene_and_peptide[gene][pep] += 1
+                counted.add(pep)
+
+        if save_counters:
+            with open(save_counters, 'w') as f:
                 pickle.dump((sequence_count_by_gene, sequence_count_by_gene_and_peptide), f)
-            LOGGER.info('All peptides saved to %s', peptides_path)
+            LOGGER.info('All peptides saved to %s', save_counters)
     
     return sequence_count_by_gene, sequence_count_by_gene_and_peptide
 
@@ -172,74 +168,55 @@ def get_peptides(input_file, min_conservation, peptides_path):
     return conserved_peptides
 
 
-def get_binding_affinities_and_thresholds(peptides, bindings_path):
+def get_binding_affinities(peptides):
     ''' can either provide realistic binding affinities and thresholds, or
         use randomized values (for benchmarking purposes)
     '''
     LOGGER.info('Generating binding affinities...')
     allele_thresholds = get_alleles_and_thresholds()
-
-    if not bindings_path or not os.path.exists(bindings_path):
-        bindings = EpitopePredictorFactory('netmhcpan').predict(peptides, allele_thresholds.keys())
-        if bindings_path:
-            bindings.to_csv(bindings_path)
-            LOGGER.info('Binding affinities saved to %s', bindings_path)
-    else:
-        seq_to_peptide = {str(pep): pep for pep in peptides}
-        bindings = pd.read_csv(bindings_path)
-        bindings['Seq'] = [seq_to_peptide[seq] for seq in bindings['Seq']]
-        bindings = bindings.set_index(['Seq', 'Method'])
-        bindings.columns = list(map(Allele, bindings.columns))
-        bindings = EpitopePredictionResult(bindings)
-        LOGGER.info('Binding affinities loaded from %s', bindings_path)
-
-    return bindings, allele_thresholds
-
-
-def get_solver_class(solver):
-    solver_kwargs = {}
-
-    if solver == 'gcb':
-        solver_cls = MosaicVaccineGreedy
-        solver_kwargs['processes'] = 1
-    else:
-        solver_cls = MosaicVaccineILP
-        solver_kwargs['model_type'] = solver
-
-    return solver_cls, solver_kwargs
+    bindings = EpitopePredictorFactory('netmhcpan').predict(peptides, allele_thresholds.keys())
+    return bindings
 
 
 @main.command()
-@click.argument('input-sequences', type=click.Path('r'))
-@click.argument('solver', type=click.Choice([
-    'gcb',      # Generalized cost benefit heuristic
+@click.argument('input-sequences', type=click.Path())
+@click.argument('min-conservation', type=float)
+@click.argument('output-file', type=click.Path())
+@click.option('--save-counters', '-s', type=click.Path(), help='Where to save counters')
+def generate_peptides(input_sequences, min_conservation, output_file, save_counters):
+    ''' Produces the conserved epitopes and their binding strength from the target sequences
+    '''
+    peptides = get_peptides(input_sequences, min_conservation, save_counters)
+    bindings = get_binding_affinities(peptides)
+
+    with open(output_file, 'w') as f:
+        pickle.dump(bindings, f)
+
+
+@main.command()
+@click.argument('bindings-file', type=click.Path())
+@click.option('--solver', '-s', type=click.Choice([
     'dfj',      # ILP solver with Dantzig-Fulkerson-Johnson subtour elimination constraints added lazily
     'mtz-l',    # ILP solver with Miller-Tucker-Zemlin subtour elimination constraints added lazily
     'mtz-g',    # ILP solver with all Miller-Tucker-Zemlin suboutr elimination constraints added at the beginning
-]))
-@click.option('--binding-affinities', '-b', type=click.Path(), help='Load (if exists) or save (if not) HLA-peptide binding affinities')
-@click.option('--peptides', '-p', type=click.Path(), help='Load (if exists) or save (if not) computed peptides')
+]), default='dfj', help='Which solver to use')
 @click.option('--max-aminoacids', '-a', default=15, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=0.0, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', '-A', default=0.0, help='Minimum number of alleles to cover with the vaccine')
 @click.option('--min-antigens', '-g', default=0.0, help='Minimum antigens to cover with the vaccine')
-@click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
-def design_vaccine(input_sequences, solver, binding_affinities, max_aminoacids, max_epitopes,
-                   min_alleles, min_antigens, min_conservation, peptides):
+def design_vaccine(bindings_file, solver, max_aminoacids, max_epitopes, min_alleles, min_antigens):
+    ''' Produces a mosaic vaccine starting from the desired epitopes and their binding strength
+    '''
 
     program_start_time = time.time()
+    with open(bindings_file) as f:
+        bindings = pickle.load(f)
 
-    peptides = get_peptides(input_sequences, min_conservation, peptides)
-    bindings, thresh = get_binding_affinities_and_thresholds(peptides, binding_affinities)
-
-    solver_cls, solver_kwargs = get_solver_class(solver)
-    LOGGER.debug('Using solver %s', solver_cls)
-
-    solver_creation_time = time.time()
-    solver = solver_cls(
-        bindings, thresh, max_vaccine_aminoacids=max_aminoacids, max_vaccine_epitopes=max_epitopes,
-        min_allele_coverage=min_alleles, min_antigen_coverage=min_antigens,
-        min_epitope_conservation=None, **solver_kwargs
+    thresh = get_alleles_and_thresholds()
+    solver = MosaicVaccineILP(
+        bindings, thresh, model_type=solver, max_vaccine_aminoacids=max_aminoacids,
+        max_vaccine_epitopes=max_epitopes, min_allele_coverage=min_alleles,
+        min_antigen_coverage=min_antigens, min_epitope_conservation=None
     )
 
     solver_build_time = time.time()
@@ -253,28 +230,29 @@ def design_vaccine(input_sequences, solver, binding_affinities, max_aminoacids, 
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)
-    LOGGER.info('  Inputs preparation : %.2f s', solver_creation_time - program_start_time)
-    LOGGER.info('      Pre-processing : %.2f s', solver_build_time - solver_creation_time)
+    LOGGER.info('      Pre-processing : %.2f s', solver_build_time - program_start_time)
     LOGGER.info(' Model creation time : %.2f s', solver_start_time - solver_build_time)
     LOGGER.info('        Solving time : %.2f s', solver_end_time - solver_start_time)
 
 
 @main.command()
-@click.argument('input-sequences', type=click.Path('r'))
+@click.argument('bindings-file', type=click.Path())
 @click.argument('epitopes', nargs=-1)
 @click.option('--min-conservation', '-c', default=0.0, help='Minimum conservation of selected epitopes')
 @click.option('--random', '-r', default=0, help='Create a vaccine with a random number of epitopes')
 @click.option('--greedy', '-g', default=0, help='Create a vaccine with the most immunogenic epitopes')
-def inspect_vaccine(input_sequences, epitopes, min_conservation, random, greedy):
+def inspect_vaccine(bindings_file, epitopes, min_conservation, random, greedy):
+    ''' Evaluates a mosaic vaccine composed by the given epitopes
+    '''
     if random > 0 and (epitopes or greedy):
         LOGGER.warning('Both epitopes and a vaccine generation strategy specified! I will use the given epitopes')
     elif random <= 0 and not epitopes and not greedy:
         LOGGER.error('Neither a vaccine strategy or the epitopes were specified.')
         return
 
-    peptides = get_peptides(input_sequences, min_conservation)
-    LOGGER.info('%d peptides generated', len(peptides))
-    bindings, thresh = get_binding_affinities_and_thresholds(peptides, randomize=None, bindings_path=None)
+    with open(bindings_file) as f:
+        bindings = pickle.load(f)
+    thresh = get_alleles_and_thresholds()
 
     data = DataContainer(bindings, thresh)
 

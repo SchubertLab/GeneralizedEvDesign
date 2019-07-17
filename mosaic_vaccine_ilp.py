@@ -121,14 +121,6 @@ class DataContainer:
                 self.all_genes.add(prot.gene_id)
                 self.gene_to_epitope.setdefault(prot.gene_id, set()).add(i)
 
-        # calculate epitope conservation, i.e. number of proteins that contain it over number of genes
-        # TODO this does not make any sense ?!
-        total = len(self.all_genes)
-        self.conservations = {
-            e: (v / total) if total > 0 else 1
-            for e, v in self.conservations.iteritems()
-        }
-
     @staticmethod
     def _fill_allele_probs(alleles):
         # test if allele prob is set, if not set allele prob uniform

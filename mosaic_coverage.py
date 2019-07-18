@@ -119,63 +119,11 @@ def is_percent_barrier(i, n, p):
     return int(100.0 / p * (i + 1) / n) > int(100 / p * i / n)
 
 
-class Process(mp.Process):
-    def __init__(self, in_queue, out_queue, all_peptides, max_edits, protein_count_by_peptide):
-        super(Process, self).__init__()
-
-        self.in_queue = in_queue
-        self.out_queue = out_queue
-
-        self.all_peptides = all_peptides
-        self.max_edits = max_edits
-        self.protein_count_by_peptide = protein_count_by_peptide
-    
-    def run(self):
-        timeouts = 0
-        while True:
-            try:
-                obj = self.in_queue.get(timeout=1)
-                timeouts = 0
-                if obj is None:
-                    return
-                
-                try:
-                    result = self.compute_reachable_count(obj)
-                except:
-                    traceback.print_exc()
-                    continue
-
-                while True:
-                    try:
-                        self.out_queue.put(result, timeout=1)
-                        break
-                    except Queue.Full:
-                        timeouts += 1
-                        if timeouts >= 30:
-                            return
-            except Queue.Empty:
-                timeouts += 1
-                if timeouts >= 30:
-                    return
-    
-    def compute_reachable_count(self, peptide):
-        protein_count_by_edits = {}
-        for reachable, edits in self.all_peptides.reachable_strings(peptide, self.max_edits):
-            if edits not in protein_count_by_edits:
-                protein_count_by_edits[edits] = 0
-            protein_count_by_edits[edits] += self.protein_count_by_peptide[reachable]
-
-        res = {'match-%d' % (len(peptide) - e): c for e, c in protein_count_by_edits.iteritems()}
-        res['peptide'] = peptide
-        return '%s\n' % json.dumps(res)
-
-
 @main.command()
 @click.argument('input-sequences', type=click.Path())
 @click.argument('output-file', type=click.Path())
 @click.option('--max-edits', '-e', default=2, help='Maximum edits allowed')
-@click.option('--processes', '-p', default=-2, help='How many processes to use')
-def compute_coverage(input_sequences, max_edits, output_file, processes):
+def compute_coverage(input_sequences, max_edits, output_file):
     ''' Computes protein coverage for each peptide, allowing for inexact matching
 
         In other words, it first generates all peptides that appear in the input proteins,
@@ -189,7 +137,7 @@ def compute_coverage(input_sequences, max_edits, output_file, processes):
 
     LOGGER.info('Extracting peptides and counting how many proteins each peptide covers...')
     all_peptides = Trie()
-    protein_count_by_peptide = {}
+    proteins_by_peptide = {}
     for i, prot in enumerate(proteins):
         aminoacids = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
         peptides_in_this_protein = set()
@@ -198,54 +146,29 @@ def compute_coverage(input_sequences, max_edits, output_file, processes):
             if seq not in peptides_in_this_protein:
                 peptides_in_this_protein.add(seq)
                 all_peptides.insert(seq)
-                if seq not in protein_count_by_peptide:
-                    protein_count_by_peptide[seq] = 0
-                protein_count_by_peptide[seq] = 1
+                if seq not in proteins_by_peptide:
+                    proteins_by_peptide[seq] = set()
+                proteins_by_peptide[seq].add(i)
 
         if is_percent_barrier(i, len(proteins), 5):
             LOGGER.debug('%d proteins analyzed (%.2f%%) and %d peptides extracted...',
-                         i + 1, 100 * (i + 1) / len(proteins), len(protein_count_by_peptide))
+                         i + 1, 100 * (i + 1) / len(proteins), len(proteins_by_peptide))
 
     LOGGER.info('Computing reachability')
-    if processes < 0:
-        processes = mp.cpu_count() + processes - 1
-
-    in_queue, out_queue = mp.Queue(), mp.Queue()
-    processes = [
-        Process(in_queue, out_queue, all_peptides, max_edits, protein_count_by_peptide)
-        for _ in range(processes)
-    ]
     with open(output_file, 'w') as f:
-        peptides = list(protein_count_by_peptide.keys())
+        for i, peptide in enumerate(proteins_by_peptide):
+            proteins_by_edits = {}
+            for reachable, edits in all_peptides.reachable_strings(peptide, max_edits):
+                if edits not in proteins_by_edits:
+                    proteins_by_edits[edits] = set()
+                proteins_by_edits[edits].update(proteins_by_peptide[reachable])
 
-        # warm up queue
-        cursor = 0
-        for i in range(min(len(peptides), 100)):
-            in_queue.put(peptides[cursor])
-            cursor += 1
-        
-        for p in processes:
-            p.start()
-        
-        # process results, insert a new task every time we get a new result
-        # this works as long as we consume quicker than the producers
-        done = 0
-        while done < len(peptides):
-            res = out_queue.get()
-            f.write(res)
-            done += 1
+            res = {'match-%d' % (len(peptide) - e): len(c) for e, c in proteins_by_edits.iteritems()}
+            res['peptide'] = peptide
+            f.write('%s\n' % json.dumps(res))
 
-            if cursor < len(peptides):
-                in_queue.put(peptides[cursor])
-                cursor += 1
-            else:
-                in_queue.put(None)
-
-            if is_percent_barrier(done, len(peptides), 5):
-                LOGGER.debug('%d peptides analyzed (%.2f%%)', done + 1, 100 * (done + 1) / len(protein_count_by_peptide))
-    
-    for p in processes:
-        p.join()
+            if is_percent_barrier(i, len(proteins_by_peptide), 2.5):
+                LOGGER.debug('%d peptides analyzed (%.2f%%)...', i + 1, 100 * (i + 1) / len(proteins_by_peptide))
 
 
 if __name__ == '__main__':

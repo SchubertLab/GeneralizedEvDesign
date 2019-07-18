@@ -50,6 +50,8 @@ class TeamOrienteeringIlp:
             raise ValueError('model type must be either "dfj", "mtz-g" or "mtz-l"')
         elif (model_type == 'mtz-l' or model_type == 'dfj') and not solver.endswith('_persistent'):
             raise ValueError('persistent solver required for lazy constraints')
+        elif num_teams < 1:
+            raise ValueError('at least one tema needed')
 
         self._model_type = model_type
         self._model = None
@@ -69,6 +71,7 @@ class TeamOrienteeringIlp:
         # model parameters
         self._model.TeamCount = aml.Param(initialize=self._num_teams)
         self._model.MaxEdgeCost = aml.Param(initialize=self._max_edge_cost)
+        self._model.MaxVertexCount = aml.Param(initialize=self._max_vertices)
 
         # graph objects
         self._model.Teams = aml.RangeSet(0, self._num_teams - 1)
@@ -105,24 +108,45 @@ class TeamOrienteeringIlp:
         # every vertex must be visited at most once
         self._model.VertexVisit = aml.Constraint(
             (n for n in self._model.Nodes if n != 0),
-            rule=lambda model, node: sum(model.y[node, t] for t in model.Teams) == 1
+            rule=lambda model, node: sum(model.y[node, t] for t in model.Teams) <= 1
         )
-
-        # all paths must be connected
+        
+        # incoming connnections = outgoing connections = node selected
+        # i.e. no sources or sinks (implies path is connected)
+        #      enforces consistency between x and y (i.e. node touched by arcs if and only if it is selected)
+        #      and at most one path passes from the node
         self._model.Incoming = aml.Constraint(
             ((n, t) for n in self._model.Nodes for t in self._model.Teams),
-            rule=lambda model, node, team: sum(model.x[node, v, team] for v in model.Nodes) == model.y[node, team]
+            rule=lambda model, node, team: sum(
+                model.x[node, v, team] for v in model.Nodes if v != node
+            ) == model.y[node, team]
         )
         self._model.Outgoing = aml.Constraint(
             ((n, t) for n in self._model.Nodes for t in self._model.Teams),
-            rule=lambda model, node, team: sum(model.x[v, node, team] for v in model.Nodes) == model.y[node, team]
+            rule=lambda model, node, team: sum(
+                model.x[v, node, team] for v in model.Nodes if v != node
+            ) == model.y[node, team]
         )
 
         # each path must not exceed the specified edge cost
-        self._model.PathEdgeCost = aml.Constraint(
-            self._model.Teams,
-            rule=lambda model, team: sum(model.x[u, v, team] * model.d[u, v] for (u, v) in model.Edges) <= model.MaxEdgeCost
-        )
+        if self._max_edge_cost > 0:
+            self.logger.info('Maximum edge cost for each tour is %f', self._max_edge_cost)
+            self._model.MaxPathEdgeCost = aml.Constraint(
+                self._model.Teams,
+                rule=lambda model, team: sum(model.x[u, v, team] * model.d[u, v] for (u, v) in model.Edges) <= model.MaxEdgeCost
+            )
+        else:
+            self.logger.info('No maximum edge cost enforced.')
+
+        # each path must not pass through more vertices than specified
+        if self._max_vertices > 0:
+            self.logger.info('Maximum vertex count for each tour is %d', self._max_vertices)
+            self._model.MaxPathVertices = aml.Constraint(
+                self._model.Teams,
+                rule=lambda model, team: sum(model.y[n, team] for n in model.Nodes if n != 0) <= model.MaxVertexCount
+            )
+        else:
+            self.logger.info('No maximum vertex count enforced.')
 
         self.logger.info('Model build!')
         return self
@@ -208,31 +232,40 @@ class TeamOrienteeringIlp:
         '''
         for tour in tours:
             tour_nodes = set(i for i, _ in tour)
-            self._subtour_constraints += 1
-            name = 'Subtour_%d' % self._subtour_constraints
-            constraint = pmo.constraint(
-                body=sum(
-                    self._model.x[i, j, p]
-                    for i in tour_nodes
-                    for j in tour_nodes
-                    for p in range(self._num_teams)
-                    if i != j
-                ),
-                ub=len(tour_nodes) - 1
-            )
-            setattr(self._model, name, constraint)
-            self._solver.add_constraint(getattr(self._model, name))
+            for team in xrange(self._num_teams):
+                self._subtour_constraints += 1
+                name = 'Subtour_%d' % self._subtour_constraints
+                constraint = pmo.constraint(
+                    body=sum(
+                        self._model.x[i, j, team]
+                        for i in tour_nodes
+                        for j in tour_nodes
+                        if i != j
+                    ),
+                    ub=len(tour_nodes) - 1
+                )
+                setattr(self._model, name, constraint)
+                self._solver.add_constraint(getattr(self._model, name))
 
     def _extract_solution_from_model(self):
         ''' returns a list of dictionaries i -> list of j containing the tours found by the model
         '''
         tours = []
         for t in range(self._num_teams):
+            vertices = [
+                n for n in self._model.Nodes
+                if 0.98 <= self._model.y[n, t].value
+            ]
+            self.logger.debug('Team %d selected nodes %s', t, vertices)
+
             edges = {}
             for i, j in self._model.Edges:
                 if 0.98 <= self._model.x[i, j, t].value <= 1.5:
                     edges[i] = j
             tours.append(edges)
+
+            self.logger.debug('Team %d selected edges %s', t, edges)
+            assert set(vertices) == set(edges)
         return tours
 
     @staticmethod

@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import utilities
 
 import heapq
 import json
@@ -184,14 +185,11 @@ def get_binding_affinity_process(batch, alleles):
 
 
 @main.command()
+@click.argument('input-alleles', type=click.Path())
 @click.argument('input-peptides', type=click.Path())
 @click.argument('output-file', type=click.Path())
-@click.option('--allele', '-a', multiple=True, default=[
-    'A*01:01', 'A*02:01', 'A*03:01', 'A*24:02', 'A*26:01', 'B*07:02',
-    'B*08:01', 'B*27:05', 'B*39:01', 'B*40:01', 'B*58:01', 'B*15:01'
-])
-@click.option('--processes', '-p', default=-1)
-def compute_bindings(input_peptides, output_file, allele, processes):
+@click.option('--processes', '-p', default=-2)
+def compute_bindings(input_alleles, input_peptides, output_file, processes):
     def iterbatches(it, bsize):
         batch = []
         while True:
@@ -207,7 +205,9 @@ def compute_bindings(input_peptides, output_file, allele, processes):
         if batch:
             yield batch
 
-    alleles = list(map(Allele, allele))
+    alleles = [Allele(a) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
+    LOGGER.info('Loaded %d alleles', len(alleles))
+
     with open(input_peptides) as f:
         reader = csv.DictReader(f)
         peptides = [(
@@ -229,7 +229,7 @@ def compute_bindings(input_peptides, output_file, allele, processes):
             bindings = result.get(999999)
             bindings.to_csv(output_file, header=(count == 0), mode=('w' if count == 0 else 'a'))
             count += len(bindings)
-            LOGGER.debug('Processed %d peptides (%.2f%%)...', count, count / len(peptides))
+            LOGGER.debug('Processed %d peptides (%.2f%%)...', count, 100 * count / len(peptides))
     except:
         pool.terminate()
         pool.join()

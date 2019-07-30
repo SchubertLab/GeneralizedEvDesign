@@ -1,9 +1,6 @@
-*.csv
-*.log
-*.fasta
 .vscode/
 *.pyc
 *.pyo
 *.swp
+*.log
 dev/
-resources

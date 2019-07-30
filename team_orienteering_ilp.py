@@ -46,14 +46,9 @@ class TeamOrienteeringIlp:
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
-        if model_type not in ['dfj', 'mtz-g', 'mtz-l']:
-            raise ValueError('model type must be either "dfj", "mtz-g" or "mtz-l"')
-        elif (model_type == 'mtz-l' or model_type == 'dfj') and not solver.endswith('_persistent'):
-            raise ValueError('persistent solver required for lazy constraints')
-        elif num_teams < 1:
+        if num_teams < 1:
             raise ValueError('at least one tema needed')
 
-        self._model_type = model_type
         self._model = None
         self._result = None
         self._solver = SolverFactory(solver)
@@ -212,8 +207,8 @@ class TeamOrienteeringIlp:
                 if len(this_tour_edges) > 1 or not any(u == 0 for u, v in this_tour_edges[0]):
                     valid_solution = False
                     self._eliminate_subtours_dfj(this_tour_edges)
-                    self.logger.debug('%s subtour elimination constraints updated (%d inserted so far)' % (
-                        self._model_type.upper(), self._subtour_constraints
+                    self.logger.debug('Subtour elimination constraints updated (%d inserted so far)' % (
+                        self._subtour_constraints
                     ))
                 else:
                     all_tours_edges.append(this_tour_edges[0])

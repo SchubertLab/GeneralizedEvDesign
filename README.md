@@ -13,3 +13,10 @@ python data_preparation.py -v extract-peptides resources/hiv1-bc-env-small.fasta
 ```
 python data_preparation.py -v compute-bindings resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-bindings.csv
 ```
+
+## Vaccine Design
+ - Mosaic
+
+```
+python design.py -v mosaic resources/alleles-small.csv dev/hiv1-bc-env-small-bindings.csv
+```

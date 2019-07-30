@@ -115,10 +115,10 @@ def is_percent_barrier(i, n, p):
 
 @main.command()
 @click.argument('input-sequences', type=click.Path(exists=True))
-@click.argument('output-file', type=click.Path())
+@click.argument('output-peptides', type=click.Path())
 @click.option('--max-edits', '-e', default=0, help='Maximum edits allowed')
 @click.option('--top-n', '-n', default=-1, help='Only keep the top N peptides by coverage')
-def extract_peptides(input_sequences, max_edits, output_file, top_n):
+def extract_peptides(input_sequences, max_edits, output_peptides, top_n):
     ''' Extract peptides from the given sequences and computes protein coverage for each peptide.
         Coverage can be computed allowing for inexact matching.
 
@@ -152,7 +152,7 @@ def extract_peptides(input_sequences, max_edits, output_file, top_n):
 
     LOGGER.info('Computing reachability...')
     top_peptides = []
-    with open(output_file, 'w') as f:
+    with open(output_peptides, 'w') as f:
         writer = csv.writer(f)
         writer.writerow(('peptide', 'proteins'))
 
@@ -187,9 +187,11 @@ def get_binding_affinity_process(batch, alleles):
 @main.command()
 @click.argument('input-alleles', type=click.Path())
 @click.argument('input-peptides', type=click.Path())
-@click.argument('output-file', type=click.Path())
+@click.argument('output-affinities', type=click.Path())
 @click.option('--processes', '-p', default=-2)
-def compute_bindings(input_alleles, input_peptides, output_file, processes):
+def compute_affinities(input_alleles, input_peptides, output_affinities, processes):
+    ''' Computes the binding affinities between the given peptides and HLA alleles
+    '''
     def iterbatches(it, bsize):
         batch = []
         while True:
@@ -217,7 +219,7 @@ def compute_bindings(input_alleles, input_peptides, output_file, processes):
     peptides.sort(key=lambda p: p[1], reverse=True)
     LOGGER.info('Loaded %d peptides', len(peptides))
 
-    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() - processes + 1))
+    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes - 1))
 
     try:
         tasks = []
@@ -227,7 +229,7 @@ def compute_bindings(input_alleles, input_peptides, output_file, processes):
         count = 0
         for result in tasks:
             bindings = result.get(999999)
-            bindings.to_csv(output_file, header=(count == 0), mode=('w' if count == 0 else 'a'))
+            bindings.to_csv(output_affinities, header=(count == 0), mode=('w' if count == 0 else 'a'))
             count += len(bindings)
             LOGGER.debug('Processed %d peptides (%.2f%%)...', count, 100 * count / len(peptides))
     except:
@@ -236,6 +238,81 @@ def compute_bindings(input_alleles, input_peptides, output_file, processes):
         raise
     else:
         pool.close()
+
+
+@main.command()
+@click.argument('input-alleles', type=click.Path())
+@click.argument('input-peptides', type=click.Path())
+@click.argument('input-affinities', type=click.Path())
+@click.argument('output-bindings', type=click.Path())
+def compute_bindings(input_alleles, input_peptides, input_affinities, output_bindings):
+    ''' Computes the HLA alleles that each peptide binds to and the resulting immumogenicity.
+    '''
+
+    # load alleles
+    thresh = utilities.get_alleles_and_thresholds(input_alleles).to_dict()
+    LOGGER.info('Loaded %d alleles', len(thresh['threshold']))
+
+    # load affinities, compute bindings and immunogenicities
+    affinities = {}
+    with open(input_affinities) as f:
+        warned = False
+        for row in csv.DictReader(f):
+            if row['Method'] != 'netmhcpan':
+                if not warned:
+                    LOGGER.warn('Wrong affinity prediction method used; please use netmhcpan! Some rows will be skipped')
+                    warned = True
+                continue
+            row.pop('Method')
+
+            bindings, immunogen = [], 0.0
+            for col, val in row.iteritems():
+                if not col.startswith('HLA'):
+                    continue
+                
+                val = float(val)
+                if val > thresh['threshold'][col]:
+                    bindings.append(col)
+                    immunogen += val * thresh['frequency'][col] / 100
+
+            affinities[row['Seq']] = {
+                'alleles': ';'.join(bindings),
+                'immunogen': immunogen,
+            }
+
+    LOGGER.info('Loaded %d affinities', len(affinities))
+    if not affinities:
+        LOGGER.error('No affinities loaded!')
+        return
+    
+    # load protein coverage
+    coverage = {}
+    with open(input_peptides) as f:
+        for row in csv.DictReader(f):
+            peptide = row.pop('peptide')
+            coverage[peptide] = row
+    LOGGER.info('Loaded %d peptides with ccoverage', len(coverage))
+    
+    coverage_peps, affinities_peps = set(coverage.keys()), set(affinities.keys())
+    if set(coverage.keys()) != set(affinities.keys()):
+        LOGGER.warn('The input files contain different peptides; only the common ones will be saved')
+    
+    merged = []
+    for peptide in coverage_peps & affinities_peps:
+        res = coverage[peptide]
+        res.update(affinities[peptide])
+        res['peptide'] = peptide
+        merged.append(res)
+    LOGGER.info('Merged coverage and affinities of %d peptides', len(merged))
+
+    if not merged:
+        LOGGER.error('Nothing merged!')
+        return
+
+    with open(output_bindings, 'w') as f:
+        writer = csv.DictWriter(f, fieldnames=merged[0].keys())
+        writer.writeheader()
+        writer.writerows(merged)
 
 
 if __name__ == '__main__':

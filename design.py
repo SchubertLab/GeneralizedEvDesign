@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import csv
 import utilities
 
 import logging
@@ -54,41 +55,28 @@ def compute_immunogenicities(bindings):
 
 
 @main.command()
-@click.argument('alleles-file', type=click.Path())
 @click.argument('bindings-file', type=click.Path())
+@click.argument('output-vaccine', type=click.Path())
 @click.option('--mosaics', '-m', default=1, help='How many different mosaics to produce')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=3, help='Maximum length of the vaccine in epitopes')
-def mosaic(alleles_file, bindings_file, mosaics, max_aminoacids, max_epitopes):
+def mosaic(bindings_file, output_vaccine, mosaics, max_aminoacids, max_epitopes):
     ''' Produces a mosaic vaccine starting from the desired epitopes and their binding strength
     '''
 
     program_start_time = time.time()
 
-    # load alleles
-    thresh = utilities.get_alleles_and_thresholds(alleles_file)
-    LOGGER.info('Loaded %d alleles', len(thresh))
-
     # load bindings
-    bindings = pd.read_csv(bindings_file, index_col=['Seq'])
-    if list(bindings.Method.unique()) != ['netmhcpan']:
-        raise ValueError('Wrong binding prediction method used. Please use netmhcpan!')
-    bindings = bindings.drop('Method', axis=1)
-    LOGGER.info('Loaded %d peptides', len(bindings))
-    
-    # compute immunogenicities
-    immunogens = bindings.apply(lambda row: sum(
-        (bind * thresh.T[allele].frequency / 100 if bind > thresh.T[allele].threshold else 0)
-        for allele, bind in zip(row.index, row)
-    ), axis=1)
-    immunogens = immunogens[immunogens > 0]
-    if len(immunogens) == 0:
-        raise ValueError('Thresholds too high, no peptides bind!')
-    LOGGER.info('%d peptides bind to at least one allele', len(immunogens))
+    with open(bindings_file) as f:
+        bindings = []
+        for row in csv.DictReader(f):
+            row['immunogen'] = float(row['immunogen'])
+            if row['immunogen'] > 0:
+                bindings.append(row)
 
     # compute edge cost and create solver
-    epitopes = [''] + immunogens.index.to_list()
-    vertex_rewards = [0] + immunogens.to_list()
+    epitopes = [''] + [b['peptide'] for b in bindings]
+    vertex_rewards = [0] + [b['immunogen'] for b in bindings]
     edge_cost = utilities.compute_suffix_prefix_cost(epitopes)
     solver = TeamOrienteeringIlp(
         num_teams=mosaics, vertex_reward=vertex_rewards, edge_cost=edge_cost,
@@ -107,7 +95,14 @@ def mosaic(alleles_file, bindings_file, mosaics, max_aminoacids, max_epitopes):
     for i, mosaic in enumerate(result):
         LOGGER.info('Mosaic #%d', i + 1)
         for _, vertex in mosaic[:-1]:
-            LOGGER.info('    %s - IG: %.2f' % (epitopes[vertex], immunogens[vertex]))
+            LOGGER.info('    %s - IG: %.2f', bindings[vertex - 1]['peptide'], bindings[vertex - 1]['immunogen'])
+
+    with open(output_vaccine, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(('mosaic', 'index', 'peptide'))
+        for i, mosaic in enumerate(result):
+            for j, (_, vertex) in enumerate(mosaic[:-1]):
+                writer.writerow((i, j, bindings[vertex - 1]['peptide']))
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)

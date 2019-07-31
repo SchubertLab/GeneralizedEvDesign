@@ -4,6 +4,31 @@ Generalized Epitope-based Vaccine Design
 ## Data Preparation
 Because of the long time required to prepare the inputs necessary to design a vaccine, this process is split in three stages, with intermediate results saved in CSV files.
 
+The inputs required are the proteins to target, in fasta format, e.g.
+
+```
+>B.JP.2004.04JPDR6075B.AB221125
+MRVTGIRKNCQLLWKWGTMLLGMLMICSALEQLWVTVYYGVPVWKDATTT
+LFCASDAKAYDTEMHNVWATHACVPTDPNPQEVVLVNVTEEFNMWKNNMV
+EQMHEDIINLWDQSLKPCVKLTPLCVTLHCTDLKNVTANSTASNSSTNWK
+HGIRPVVSTQLLLNGSLAEEEVVLRSENFTNNAKTIIVQLNKTVVINCTR
+PNNNTRKGIHIGAGRAIYATGAIIGDIRQAHCNLSETDWKNTLNKTVRKL
+...
+```
+
+and the HLA alleles of interest, along with their percent frequency in the population and the binding threshold:
+
+| allele      | frequency | threshold |
+| ----------- | --------- | --------- |
+| HLA-A*02:01 |   10.693… |     0.405 |
+| HLA-A*24:02 |   12.906… |     0.405 |
+| HLA-B*40:01 |    5.310… |     0.405 |
+| HLA-B*51:01 |    3.245… |     0.405 |
+
+The resources folder contains small samples that you can play with.
+
+Following are the commands required to prepare the data; the last file is the output file. Use `--help` to see more information about each command.
+
 1. Extract the peptides and their coverage from the proteins you want to target:
 
    ```
@@ -11,6 +36,7 @@ Because of the long time required to prepare the inputs necessary to design a va
    ```
 
    Sample output:
+
    | peptide   | proteins    |
    | --------- | ----------- |
    | IKQACPKVT | 8;13        |
@@ -61,22 +87,30 @@ Because of the long time required to prepare the inputs necessary to design a va
    ```
 
  - OptiTope
+
    ```
    python design.py -v optitope dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-optitope.csv
    ```
 
-   Sample output:
-   | cocktail | index | epitope   |
-   | -------- | ----- | --------- |
-   |  0       |     0 | YQRWWIWSI |
-   |  0       |     1 | YTDTIYWLL |
-   |  0       |     2 | LLQYWSQEL |
-   |  0       |     3 | YFPNKTMNF |
-   |      ... |   ... | ...       |  
+Sample output:
+
+| cocktail | index | epitope   |
+| -------- | ----- | --------- |
+|  0       |     0 | YQRWWIWSI |
+|  0       |     1 | YTDTIYWLL |
+|  0       |     2 | LLQYWSQEL |
+|  0       |     3 | YFPNKTMNF |
+|      ... |   ... | ...       |  
 
 ## Vaccine Evaluation
-Evaluation computes the following metrics: total immunogenicity, allele coverage, pathogen coverage, average epitope conservation and population coverage.
+Evaluation computes the following metrics: total immunogenicity, allele coverage, pathogen coverage, average epitope conservation and population coverage. The population coverage is also computed relative to the maximum theoretical coverage that can be achieved with the given alleles.
 
 ```
-python evaluation.py dev/hiv1-bc-env-small-vaccine.csv dev/hiv1-bc-env-small-bindings.csv
+python evaluation.py -v resources/hiv1-bc-env-small.fasta dev/hiv1-bc-env-small-coverage.csv resources/alleles-small.csv dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv dev/hiv1-bc-env-small-evaluation-mosaic.csv
 ```
+
+Sample output:
+
+| norm_prot_coverage | prot_coverage | pop_coverage | conservation | rel_pop_coverage | immunogen | max_pop_coverage |
+| ------------------ | ------------- | ------------ | ------------ | ---------------- | --------- | ---------------- |
+|               0.75 |            15 |       0.524… |       0.105… |           0.780… |    1.960… |           0.671… |

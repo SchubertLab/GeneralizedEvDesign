@@ -26,10 +26,8 @@ from Fred2.EpitopeSelection.PopCover import PopCover
 from Fred2.IO import FileReader
 from Fred2.Utility import generate_overlap_graph
 
-from mosaic_tools import group_peptides_by_gene
 from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
                                 MosaicVaccineILP)
-from MosaicVaccineGreedy import MosaicVaccineGreedy
 from team_orienteering_ilp import TeamOrienteeringIlp
 
 import csv
@@ -93,19 +91,7 @@ class Trie:
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 def main(verbose):
     global LOGGER
-    level = (logging.DEBUG) if verbose else logging.INFO
-    LOGGER = logging.getLogger()
-    LOGGER.setLevel(level)
-
-    fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
-    sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
-    LOGGER.addHandler(sh)
-
-    fh = logging.FileHandler('dev/last-run.log', 'w')
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
-    LOGGER.addHandler(fh)
+    LOGGER = utilities.init_logging(verbose)
 
 
 def is_percent_barrier(i, n, p):
@@ -245,16 +231,17 @@ def compute_affinities(input_alleles, input_peptides, output_affinities, process
 @click.argument('input-peptides', type=click.Path())
 @click.argument('input-affinities', type=click.Path())
 @click.argument('output-bindings', type=click.Path())
-def compute_bindings(input_alleles, input_peptides, input_affinities, output_bindings):
-    ''' Computes the HLA alleles that each peptide binds to and the resulting immumogenicity.
+@click.option('--top-coverage', '-c', default=0, help='Only save the top N epitopes by protein coverage')
+def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bindings, top_coverage):
+    ''' Extract epitopes, their immunogenicity and their coverage.
     '''
 
     # load alleles
-    thresh = utilities.get_alleles_and_thresholds(input_alleles).to_dict()
-    LOGGER.info('Loaded %d alleles', len(thresh['threshold']))
+    alleles = utilities.get_alleles_and_thresholds(input_alleles).to_dict('index')
+    LOGGER.info('Loaded %d alleles', len(alleles))
 
     # load affinities, compute bindings and immunogenicities
-    affinities = {}
+    epitopes = {}
     with open(input_affinities) as f:
         warned = False
         for row in csv.DictReader(f):
@@ -271,49 +258,46 @@ def compute_bindings(input_alleles, input_peptides, input_affinities, output_bin
                     continue
                 
                 val = float(val)
-                if val > thresh['threshold'][col]:
+                if val > alleles[col]['threshold']:
                     bindings.append(col)
-                    immunogen += val * thresh['frequency'][col] / 100
+                    immunogen += val * alleles[col]['frequency'] / 100
 
-            affinities[row['Seq']] = {
-                'alleles': ';'.join(bindings),
-                'immunogen': immunogen,
-            }
+            if bindings:
+                epitopes[row['Seq']] = {
+                    'alleles': ';'.join(bindings),
+                    'immunogen': immunogen,
+                }
 
-    LOGGER.info('Loaded %d affinities', len(affinities))
-    if not affinities:
-        LOGGER.error('No affinities loaded!')
+    if not epitopes:
+        LOGGER.error('No epitopes found!')
         return
+    else:
+        LOGGER.info('Found %d epitopes', len(epitopes))
     
     # load protein coverage
     coverage = {}
     with open(input_peptides) as f:
         for row in csv.DictReader(f):
-            peptide = row.pop('peptide')
-            coverage[peptide] = row
-    LOGGER.info('Loaded %d peptides with ccoverage', len(coverage))
+            epitope = row.pop('peptide')
+            coverage[epitope] = row
+    LOGGER.info('Loaded %d peptides with coverage', len(coverage))
     
-    coverage_peps, affinities_peps = set(coverage.keys()), set(affinities.keys())
-    if set(coverage.keys()) != set(affinities.keys()):
-        LOGGER.warn('The input files contain different peptides; only the common ones will be saved')
-    
+    # merge epitopes and coverage
     merged = []
-    for peptide in coverage_peps & affinities_peps:
-        res = coverage[peptide]
-        res.update(affinities[peptide])
-        res['peptide'] = peptide
-        merged.append(res)
-    LOGGER.info('Merged coverage and affinities of %d peptides', len(merged))
+    for epitope, data in epitopes.iteritems():
+        data.update(coverage[epitope])
+        data['epitope'] = epitope
+        merged.append(data)
+    LOGGER.info('Merged coverage and affinities')
 
-    if not merged:
-        LOGGER.error('Nothing merged!')
-        return
-
+    # find top N and save
+    merged.sort(key=lambda e: e['proteins'].count(';'), reverse=True)
+    top_epitopes = merged[:top_coverage] if top_coverage > 0 else merged
     with open(output_bindings, 'w') as f:
         writer = csv.DictWriter(f, fieldnames=merged[0].keys())
         writer.writeheader()
-        writer.writerows(merged)
-
+        writer.writerows(top_epitopes)
+    LOGGER.info('Saved %d epitopes', len(top_epitopes))
 
 if __name__ == '__main__':
     main()

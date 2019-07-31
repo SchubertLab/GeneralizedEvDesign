@@ -16,15 +16,23 @@ python data_preparation.py -v extract-peptides resources/hiv1-bc-env-small.fasta
 python data_preparation.py -v compute-affinities resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv
 ```
 
-3. Compute which peptides bind to which alleles and the resulting immunogenicities. The output file also includes protein coverage computed in the first step.
+3. Extract the epitopes, their immunogenicity and their protein and HLA coverage.
 
 ```
-python data_preparation.py -v compute-bindings resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv dev/hiv1-bc-env-small-bindings.csv
+python data_preparation.py -v extract-epitopes resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv dev/hiv1-bc-env-small-epitopes.csv
 ```
 
 ## Vaccine Design
  - Mosaic
 
 ```
-python design.py -v mosaic dev/hiv1-bc-env-small-bindings.csv dev/hiv1-bc-env-small-vaccine.txt
+python design.py -v mosaic dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine.csv
+```
+
+## Vaccine Evaluation
+
+Evaluation computes the following metrics: total immunogenicity, allele coverage, pathogen coverage, average epitope conservation and population coverage.
+
+```
+python evaluation.py dev/hiv1-bc-env-small-vaccine.csv dev/hiv1-bc-env-small-bindings.csv
 ```

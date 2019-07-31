@@ -27,7 +27,6 @@ from Fred2.Utility import generate_overlap_graph
 
 from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
                                 MosaicVaccineILP)
-from MosaicVaccineGreedy import MosaicVaccineGreedy
 
 
 LOGGER = None

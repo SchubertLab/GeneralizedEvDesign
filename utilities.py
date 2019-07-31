@@ -1,4 +1,5 @@
 import numpy as np
+import logging
 import pandas as pd
 from Fred2.Core import Allele, Peptide
 from Fred2.EpitopePrediction import EpitopePredictionResult
@@ -16,6 +17,24 @@ def bindings_from_csv(bindings_file):
     df = df.set_index(['Seq', 'Method'])
     df.columns = [Allele(c) for c in df.column]
     bindings = EpitopePredictionResult(df)
+
+
+def init_logging(verbose):
+    level = (logging.DEBUG) if verbose else logging.INFO
+    logger = logging.getLogger()
+    logger.setLevel(level)
+
+    fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+
+    fh = logging.FileHandler('dev/last-run.log', 'w')
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    return logger
 
 
 def compute_suffix_prefix_cost(strings):

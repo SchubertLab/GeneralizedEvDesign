@@ -258,9 +258,9 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
                     continue
                 
                 val = float(val)
+                immunogen += val * alleles[col]['frequency'] / 100
                 if val > alleles[col]['threshold']:
                     bindings.append(col)
-                    immunogen += val * alleles[col]['frequency'] / 100
 
             if bindings:
                 epitopes[row['Seq']] = {

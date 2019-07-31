@@ -1,8 +1,29 @@
-Generalized Epitope-based Vaccine Design
-====
+# Generalized Epitope-based Vaccine Design
+General graph-based framework to design epitope vaccines.
+
+# Quick Start
+For your convenience, we provide a makefile that invokes the necessary commands in the right order and with the right arguments, using the sample files in the `resources` folder:
+
+```
+make
+```
+
+This will process the data, produce the vaccine using three different methods, and save their evaluation in `dev/mosaic-evaluation.csv`, `dev/popcover-evaluation.csv` and `dev/optitope-evaluation.csv`
+
+For a little more control, the following command allows you to specify the required input files and the output folder:
+
+```
+make all alleles=resources/alleles-small.csv proteins=resources/hiv1-bc-env-small.fasta BASE_DIR=dev
+```
+
+You are encouraged to read the next sections to learn the details, or jump straight to the Makefile.
+
+# Command Description
+Because of the long processing time required to design a vaccine, this process is split several stages, with intermediate results saved in CSV files. In the following sections we give concrete examples that work out of the box on how to run the commands; of course, you are free to modify the parameters to suit your needs.
+
+By convention, the last argument of each command is the output file, and usage help can be printed by using the `--help` option.
 
 ## Data Preparation
-Because of the long time required to prepare the inputs necessary to design a vaccine, this process is split in three stages, with intermediate results saved in CSV files.
 
 The inputs required are the proteins to target, in fasta format, e.g.
 
@@ -27,9 +48,23 @@ and the HLA alleles of interest, along with their percent frequency in the popul
 
 The resources folder contains small samples that you can play with.
 
-Following are the commands required to prepare the data; the last file is the output file. Use `--help` to see more information about each command.
+Following are the commands required to prepare the data:
+
+0. (Only if using the Makefile) start by copying the input files in the work directory:
+
+   ```
+   make init alleles=resources/alleles-small.csv proteins=resources/hiv1-bc-env-small.fasta
+   ```
+
+   By default, the work directory is `./dev/`, but it can be customized by using the argument `BASE_DIR=<dir>`. Note that if you do this now, you must include this argument for all subsequent `make` usages, too.
 
 1. Extract the peptides and their coverage from the proteins you want to target:
+
+   ```
+   make coverage proteins=resources/hiv1-bc-env-small.fasta  # customize options with COVERAGE_OPTS="..."
+   ```
+
+   Or:
 
    ```
    python data_preparation.py -v extract-peptides resources/hiv1-bc-env-small.fasta dev/hiv1-bc-env-small-coverage.csv
@@ -49,6 +84,12 @@ Following are the commands required to prepare the data; the last file is the ou
 2. Compute the binding affinities between these peptides and the HLA alleles of interest. These affinities are ic50 values scaled as follows: `affinity = 1 - log(ic50) / log(50000)`, so that 50, 500, 5000 and 50000 nM are scaled to 0.638, 0.426, 0.213 and 0.000 respectively.
 
    ```
+   make affinities alleles=resources/alleles-small.csv  # customize options with AFFINITIES_OPTS="..."
+   ```
+   
+   Or:
+
+   ```
    python data_preparation.py -v compute-affinities resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv
    ```
    
@@ -66,6 +107,12 @@ Following are the commands required to prepare the data; the last file is the ou
 3. Extract the epitopes, their immunogenicity and their protein and HLA coverage:
 
    ```
+   make epitopes   # customize options with EPITOPES_OPTS="..."
+   ```
+
+   Or:
+
+   ```
    python data_preparation.py -v extract-epitopes resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv dev/hiv1-bc-env-small-epitopes.csv
    ```
    
@@ -80,7 +127,13 @@ Following are the commands required to prepare the data; the last file is the ou
    |    0.057… | HLA-A*02:01             | 6;15     | LLALDSWAS |
 
 ## Vaccine Design
- - Mosaic
+ - Mosaic: use the generalized framework to design a mosaic vaccine
+   
+   ```
+   make mosaic-vaccine  # customize options with MOSAIC_OPTS="..."
+   ```
+   
+   Or:
 
    ```
    python design.py -v mosaic dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv
@@ -89,15 +142,28 @@ Following are the commands required to prepare the data; the last file is the ou
  - OptiTope
 
    ```
+   make optitope-vaccine  # customize options with "OPTITOPE_OPTS="..."
+   ```
+
+   Or:
+
+   ```
    python design.py -v optitope dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-optitope.csv
    ```
 
 - PopCover
+
+   ```
+   make popcover-vaccine  # customize options with "POPCOVER_OPTS="..."
+   ```
+
+   Or:
+
    ```
    python design.py -v popcover dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-popcover.csv
    ```
 
-Sample output:
+Sample output (same format for all methods):
 
 | cocktail | index | epitope   |
 | -------- | ----- | --------- |
@@ -109,6 +175,12 @@ Sample output:
 
 ## Vaccine Evaluation
 Evaluation computes the following metrics: total immunogenicity, allele coverage, pathogen coverage, average epitope conservation and population coverage. The population coverage is also computed relative to the maximum theoretical coverage that can be achieved with the given alleles.
+
+```
+make mosaic-evaluation  # make mosaic is also valid
+```
+
+Make can of course evaluate the vaccines produced by all three methods via `make mosaic`, `make optitope` and `make popcover`. The full command is as follows, make sure to use the correct input file for the vaccine:
 
 ```
 python evaluation.py -v resources/hiv1-bc-env-small.fasta dev/hiv1-bc-env-small-coverage.csv resources/alleles-small.csv dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv dev/hiv1-bc-env-small-evaluation-mosaic.csv

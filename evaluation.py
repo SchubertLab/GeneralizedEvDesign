@@ -46,9 +46,9 @@ def main(input_sequences, input_peptides, input_alleles, input_epitopes, input_v
     with open(input_vaccine) as f:
         vaccine = {}
         for row in csv.DictReader(f):
-            if row['mosaic'] not in vaccine:
-                vaccine[row['mosaic']] = {}
-            vaccine[row['mosaic']][int(row['index'])] = row['epitope']
+            if row['cocktail'] not in vaccine:
+                vaccine[row['cocktail']] = {}
+            vaccine[row['cocktail']][int(row['index'])] = row['epitope']
 
         cocktail = []
         for mosaic in vaccine.values():

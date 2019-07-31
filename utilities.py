@@ -11,12 +11,12 @@ def get_alleles_and_thresholds(allele_file):
     return df
 
 
-def bindings_from_csv(bindings_file):
-    df = pd.read_csv(bindings_file, index_col=['Seq', 'Method'])
+def bindings_from_csv(bindings_file, allele_data):
+    df = pd.read_csv(bindings_file)
     df['Seq'] = df.Seq.apply(Peptide)
     df = df.set_index(['Seq', 'Method'])
-    df.columns = [Allele(c) for c in df.column]
-    bindings = EpitopePredictionResult(df)
+    df.columns = [Allele(c, allele_data[c]['frequency'] / 100) for c in df.columns]
+    return EpitopePredictionResult(df)
 
 
 def init_logging(verbose):

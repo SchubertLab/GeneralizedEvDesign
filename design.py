@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import multiprocessing as mp
 import csv
 import utilities
 
@@ -18,8 +19,7 @@ from Fred2.Core import (Allele, Peptide, Protein,
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
-from Fred2.EpitopeSelection.PopCover import PopCover
-from Fred2.EpitopeSelection import OptiTope
+from Fred2.EpitopeSelection import OptiTope, PopCover
 from Fred2.IO import FileReader
 from Fred2.Utility import generate_overlap_graph
 
@@ -43,11 +43,8 @@ def main(verbose):
 @click.argument('output-vaccine', type=click.Path())
 @click.option('--mosaics', '-m', default=1, help='How many different mosaics to produce')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', '-e', default=3, help='Maximum length of the vaccine in epitopes')
+@click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
 def mosaic(input_epitopes, output_vaccine, mosaics, max_aminoacids, max_epitopes):
-    ''' Produces a mosaic vaccine starting from the desired epitopes and their binding strength
-    '''
-
     program_start_time = time.time()
 
     # load bindings
@@ -75,19 +72,15 @@ def mosaic(input_epitopes, output_vaccine, mosaics, max_aminoacids, max_epitopes
     result = solver.solve()
     solver_end_time = time.time()
 
-    # print info
-    LOGGER.info('Vaccine info:')
-    for i, mosaic in enumerate(result):
-        LOGGER.info('Mosaic #%d', i + 1)
-        for _, vertex in mosaic[:-1]:
-            LOGGER.info('    %s - IG: %.2f', bindings[vertex - 1]['epitope'], bindings[vertex - 1]['immunogen'])
-
+    # print info and save
     with open(output_vaccine, 'w') as f:
         writer = csv.writer(f)
         writer.writerow(('cocktail', 'index', 'epitope'))
         for i, mosaic in enumerate(result):
+            LOGGER.info('Mosaic #%d', i + 1)
             for j, (_, vertex) in enumerate(mosaic[:-1]):
                 writer.writerow((i, j, bindings[vertex - 1]['epitope']))
+                LOGGER.info('    %s - IG: %.2f', bindings[vertex - 1]['epitope'], bindings[vertex - 1]['immunogen'])
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)
@@ -100,15 +93,17 @@ def mosaic(input_epitopes, output_vaccine, mosaics, max_aminoacids, max_epitopes
 @click.argument('input-affinities', type=click.Path())
 @click.argument('input-alleles', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
-def optitope(input_affinities, input_alleles, output_vaccine):
+@click.option('--epitopes', '-e', default=10, help='Number of epitopes to include in the vaccine')
+def optitope(input_affinities, input_alleles, output_vaccine, epitopes):
     allele_data = utilities.get_alleles_and_thresholds(input_alleles).to_dict('index')
-    thresholds = {allele: data['threshold'] for allele, data in allele_data.iteritems()}
+    thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.iteritems()}
     LOGGER.info('Loaded %d alleles', len(thresholds))
 
-    epitopes = utilities.bindings_from_csv(input_affinities, allele_data)
-    LOGGER.info('Loaded %d epitopes', len(epitopes))
+    affinities = utilities.affinities_from_csv(input_affinities, allele_data)
+    LOGGER.info('Loaded %d affinities', len(affinities))
 
-    model = OptiTope(epitopes, thresholds, solver='gurobi')
+    LOGGER.info("Creating vaccine...")
+    model = OptiTope(affinities, thresholds, k=epitopes, solver='gurobi')
     vaccine = model.solve()
 
     LOGGER.info('Vaccine summary:')
@@ -123,6 +118,39 @@ def optitope(input_affinities, input_alleles, output_vaccine):
             total_ig += epitope_immunog
             LOGGER.info('    %s - IG: %.2f', epitope, epitope_immunog)
         LOGGER.info('Total immunogenicity: %.2f', total_ig)
+
+
+@main.command()
+@click.argument('input-peptides', type=click.Path())
+@click.argument('input-affinities', type=click.Path())
+@click.argument('input-alleles', type=click.Path())
+@click.argument('output-vaccine', type=click.Path())
+@click.option('--epitopes', '-e', default=10, help='Number of epitopes to include in the vaccine')
+@click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
+def popcover(input_peptides, input_affinities, input_alleles, output_vaccine, processes, epitopes):
+    with open(input_peptides) as f:
+        reader = csv.DictReader(f)
+        peptides = {Peptide(r['peptide']): set(r['proteins'].split(';')) for r in reader}
+    LOGGER.info('Loaded %d peptides', len(peptides))
+
+    allele_data = utilities.get_alleles_and_thresholds(input_alleles).to_dict('index')
+    thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.iteritems()}
+    LOGGER.info('Loaded %d alleles', len(thresholds))
+
+    affinities = utilities.affinities_from_csv(input_affinities, allele_data, peptides)
+    LOGGER.info('Loaded %d affinities', len(affinities))
+
+    LOGGER.info("Creating vaccine...")
+    model = PopCover(affinities, thresholds, k=epitopes,
+                     processes=processes if processes > 0 else (mp.cpu_count() + processes))
+    vaccine = model.solve()
+
+    with open(output_vaccine, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(('cocktail', 'index', 'epitope'))
+        for i, epitope in enumerate(vaccine):
+            writer.writerow((0, i, epitope))
+            LOGGER.info('    %s', epitope)
 
 
 if __name__ == '__main__':

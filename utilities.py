@@ -1,7 +1,8 @@
 import numpy as np
 import logging
 import pandas as pd
-from Fred2.Core import Allele, Peptide
+from Fred2.Core import Allele, Peptide, Protein
+from Fred2.IO import FileReader
 from Fred2.EpitopePrediction import EpitopePredictionResult
 import csv
 
@@ -11,11 +12,36 @@ def get_alleles_and_thresholds(allele_file):
     return df
 
 
-def bindings_from_csv(bindings_file, allele_data):
+def read_annotated_proteins(proteins_file):
+    ''' Reads proteins from a fasta file and extracts their metadata from the header.
+        Currently follows the format of the HIV database
+    '''
+    proteins = FileReader.read_fasta(proteins_file, in_type=Protein)
+    for prot in proteins:
+        parts = prot.transcript_id.split('.')
+        prot.transcript_id = parts[-1]
+    return proteins
+
+
+def affinities_from_csv(bindings_file, allele_data=None, peptide_coverage=None, proteins=None):
+    ''' Loads binding affinities from a csv file. Optionally, augments alleles with probability
+        and peptides with protein coverage.
+    '''
     df = pd.read_csv(bindings_file)
+
     df['Seq'] = df.Seq.apply(Peptide)
+    if peptide_coverage is not None:
+        for pep in df.Seq:
+            for prot in peptide_coverage[str(pep)]:
+                pep.proteins[prot] = prot
+
     df = df.set_index(['Seq', 'Method'])
-    df.columns = [Allele(c, allele_data[c]['frequency'] / 100) for c in df.columns]
+
+    if allele_data is not None:
+        df.columns = [Allele(c, allele_data[c]['frequency'] / 100) for c in df.columns]
+    else:
+        df.columns = [Allele(c) for c in df.columns]
+
     return EpitopePredictionResult(df)
 
 

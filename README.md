@@ -92,6 +92,11 @@ Following are the commands required to prepare the data; the last file is the ou
    python design.py -v optitope dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-optitope.csv
    ```
 
+- PopCover
+   ```
+   python design.py -v popcover dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-popcover.csv
+   ```
+
 Sample output:
 
 | cocktail | index | epitope   |

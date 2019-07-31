@@ -299,5 +299,6 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
         writer.writerows(top_epitopes)
     LOGGER.info('Saved %d epitopes', len(top_epitopes))
 
+
 if __name__ == '__main__':
     main()

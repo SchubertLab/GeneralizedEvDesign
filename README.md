@@ -150,7 +150,7 @@ Following are the commands required to prepare the data:
    | ...       | ...       |     ... |
 
 ## Vaccine Design
- - Mosaic: use the generalized framework to design a mosaic vaccine
+ - Mosaic: use this generalized framework to design a mosaic vaccine
    
    ```
    make mosaic-vaccine  # customize options with MOSAIC_OPTS="..."
@@ -162,10 +162,22 @@ Following are the commands required to prepare the data:
    python design.py -v mosaic dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv
    ```
 
- - OptiTope
+ - String of Beads: use this generalized framework to design a string-of-beads vaccine
+   
+   ```
+   make string-of-beads-vaccine  # customize options with STRING_OF_BEADS_OPTS="..."
+   ```
+
+   Or:
 
    ```
-   make optitope-vaccine  # customize options with "OPTITOPE_OPTS="..."
+   python design.py -v string-of-beads dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-cleavages dev/hiv1-bc-env-small-vaccine-string-of-beads.csv
+   ```
+
+ - OptiTope: 
+
+   ```
+   make optitope-vaccine  # customize options with OPTITOPE_OPTS="..."
    ```
 
    Or:
@@ -177,7 +189,7 @@ Following are the commands required to prepare the data:
 - PopCover
 
    ```
-   make popcover-vaccine  # customize options with "POPCOVER_OPTS="..."
+   make popcover-vaccine  # customize options with POPCOVER_OPTS="..."
    ```
 
    Or:

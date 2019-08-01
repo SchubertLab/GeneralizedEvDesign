@@ -1,4 +1,4 @@
-.PHONY: all init alleles proteins coverage affinities epitopes cleavages mosaic-vaccine mosaic-eval mosaic optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
+.PHONY: all init alleles proteins coverage affinities epitopes cleavages mosaic-vaccine mosaic-eval mosaic string-of-beads-vaccine string-of-beads-eval string-of-beads optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
 
 BASE_DIR=./dev
 alleles:=./resources/alleles-small.csv
@@ -16,6 +16,9 @@ CLEAVAGES_OPTS:=
 MOSAIC_VACCINE:=$(BASE_DIR)/made-mosaic-vaccine.csv
 MOSAIC_OPTS:=
 MOSAIC_EVAL:=$(BASE_DIR)/made-mosaic-evaluation.csv
+STRING_OF_BEADS_VACCINE:=$(BASE_DIR)/made-string-of-beads-vaccine.csv
+STRING_OF_BEADS_OPTS:=
+STRING_OF_BEADS_EVAL:=$(BASE_DIR)/made-string-of-beads-evaluation.csv
 POPCOVER_VACCINE:=$(BASE_DIR)/made-popcover-vaccine.csv
 POPCOVER_OPTS:=
 POPCOVER_EVAL:=$(BASE_DIR)/made-popcover-evaluation.csv
@@ -34,6 +37,9 @@ cleavages: $(CLEAVAGES)
 mosaic-vaccine: $(MOSAIC_VACCINE)
 mosaic-eval: $(MOSAIC_EVAL)
 mosaic: mosaic-eval
+string-of-beads-vaccine: $(STRING_OF_BEADS_VACCINE)
+string-of-beads-eval: $(STRING_OF_BEADS_EVAL)
+string-of-beads: string-of-beads-eval
 optitope-vaccine: $(OPTITOPE_VACCINE)
 optitope-eval: $(OPTITOPE_EVAL)
 optitope: optitope-eval
@@ -66,6 +72,12 @@ $(MOSAIC_VACCINE): $(EPITOPES)
 
 $(MOSAIC_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(MOSAIC_VACCINE)
 	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL)
+
+$(STRING_OF_BEADS_VACCINE): $(EPITOPES) $(CLEAVAGES)
+	python design.py -v string-of-beads $(EPITOPES) $(CLEAVAGES) $(STRING_OF_BEADS_VACCINE)
+
+$(STRING_OF_BEADS_EVAL): $(STRING_OF_BEADS_VACCINE)
+	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(STRING_OF_BEADS_VACCINE) $(STRING_OF_BEADS_EVAL)
 
 $(OPTITOPE_VACCINE): $(AFFINITIES) $(ALLELES)
 	python design.py -v optitope $(AFFINITIES) $(ALLELES) $(OPTITOPE_VACCINE) $(OPTITOPE_OPTS)

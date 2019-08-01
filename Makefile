@@ -1,31 +1,51 @@
 .PHONY: all init alleles proteins coverage affinities epitopes cleavages preparation mosaic-vaccine mosaic-eval mosaic string-of-beads-vaccine string-of-beads-eval string-of-beads optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
 
-BASE_DIR=./dev
-alleles:=./resources/alleles-small.csv
-ALLELES:=$(BASE_DIR)/made-alleles.csv
-proteins:=./resources/hiv1-bc-env-small.fasta 
-PROTEINS:=$(BASE_DIR)/made-proteins.fasta
-COVERAGE:=$(BASE_DIR)/made-coverage.csv
-COVERAGE_OPTS:=
-AFFINITIES:=$(BASE_DIR)/made-affinities.csv
-AFFINITIES_OPTS:=
-EPITOPES:=$(BASE_DIR)/made-epitopes.csv
-EPITOPES_OPTS:=
-CLEAVAGES:=$(BASE_DIR)/made-cleavages.csv
-CLEAVAGES_OPTS:=
-MOSAIC_VACCINE:=$(BASE_DIR)/made-mosaic-vaccine.csv
-MOSAIC_OPTS:=
-MOSAIC_EVAL:=$(BASE_DIR)/made-mosaic-evaluation.csv
-STRING_OF_BEADS_VACCINE:=$(BASE_DIR)/made-string-of-beads-vaccine.csv
-STRING_OF_BEADS_OPTS:=
-STRING_OF_BEADS_EVAL:=$(BASE_DIR)/made-string-of-beads-evaluation.csv
-POPCOVER_VACCINE:=$(BASE_DIR)/made-popcover-vaccine.csv
-POPCOVER_OPTS:=
-POPCOVER_EVAL:=$(BASE_DIR)/made-popcover-evaluation.csv
-OPTITOPE_VACCINE:=$(BASE_DIR)/made-optitope-vaccine.csv
-OPTITOPE_OPTS:=
-OPTITOPE_EVAL:=$(BASE_DIR)/made-optitope-evaluation.csv
+# include custom configuration (variables from command line have precedence)
+BASE_DIR?=./dev
+CONFIG?="$(BASE_DIR)/config.mak"
+-include $(CONFIG) 
 
+# set default values for all variables that were not defined in the config or from the command line
+alleles							?= ./resources/alleles-small.csv
+ALLELES_NAME					?= made-alleles.csv
+ALLELES							?= $(BASE_DIR)/$(ALLELES_NAME)
+proteins						?= ./resources/hiv1-bc-env-small.fasta 
+PROTEINS_NAME					?= made-proteins.fasta
+PROTEINS						?= $(BASE_DIR)/$(PROTEINS_NAME)
+COVERAGE_NAME					?= made-coverage.csv
+COVERAGE						?= $(BASE_DIR)/$(COVERAGE_NAME)
+COVERAGE_OPT					?= 
+AFFINITIES_NAME					?= made-affinities.csv
+AFFINITIES						?= $(BASE_DIR)/$(AFFINITIES_NAME)
+AFFINITIES_OPTS					?= 
+EPITOPES_NAME					?= made-epitopes.csv
+EPITOPES						?= $(BASE_DIR)/$(EPITOPES_NAME)
+EPITOPES_OPTS					?= 
+CLEAVAGES_NAME					?= made-cleavages.csv
+CLEAVAGES						?= $(BASE_DIR)/$(CLEAVAGES_NAME)
+CLEAVAGES_OPTS					?= 
+MOSAIC_VACCINE_NAME				?= made-mosaic-vaccine.csv
+MOSAIC_VACCINE					?= $(BASE_DIR)/$(MOSAIC_VACCINE_NAME)
+MOSAIC_OPTS						?= 
+MOSAIC_EVAL_NAME				?= made-mosaic-evaluation.csv
+MOSAIC_EVAL						?= $(BASE_DIR)/$(MOSAIC_EVAL_NAME)
+STRING_OF_BEADS_VACCINE_NAME 	?= made-string-of-beads-vaccine.csv
+STRING_OF_BEADS_VACCINE			?= $(BASE_DIR)/$(STRING_OF_BEADS_VACCINE_NAME)
+STRING_OF_BEADS_OPTS			?= 
+STRING_OF_BEADS_EVAL_NAME		?= made-string-of-beads-evaluation.csv
+STRING_OF_BEADS_EVAL			?= $(BASE_DIR)/$(STRING_OF_BEADS_EVAL_NAME)
+POPCOVER_VACCINE_NAME			?= made-popcover-vaccine.csv
+POPCOVER_VACCINE				?= $(BASE_DIR)/$(POPCOVER_VACCINE_NAME)
+POPCOVER_OPTS					?= 
+POPCOVER_EVAL_NAME				?= made-popcover-evaluation.csv
+POPCOVER_EVAL					?= $(BASE_DIR)/$(POPCOVER_EVAL_NAME)
+OPTITOPE_VACCINE_NAME			?= made-optitope-vaccine.csv
+OPTITOPE_VACCINE				?= $(BASE_DIR)/$(OPTITOPE_VACCINE_NAME)
+OPTITOPE_OPTS					?= 
+OPTITOPE_EVAL_NAME				?= made-optitope-evaluation.csv
+OPTITOPE_EVAL					?= $(BASE_DIR)/$(OPTITOPE_EVAL_NAME)
+
+# define aliases
 all: mosaic optitope popcover
 init: $(ALLELES) $(PROTEINS)
 alleles: $(ALLELES)
@@ -48,13 +68,17 @@ popcover-vaccine: $(POPCOVER_VACCINE)
 popcover-eval: $(POPCOVER_EVAL)
 popcover: popcover-eval
 
+# we only copy the input files when the targets are missing
+# this is to prevent somebody from accedentally overwriting them with the samples in the resources folder
+# when they run make -B <something>
+# NB: make -B will redo *everything*, in order to only make the target you specify, you should touch one of its dependencies
 $(ALLELES):
 	mkdir -p $(BASE_DIR)
-	cp $(alleles) $(ALLELES)
+	[ ! -f $(ALLELES) ] && cp $(alleles) $(ALLELES) || echo "Not overwriting allele file, remove it manually first!"
 
 $(PROTEINS):
 	mkdir -p $(BASE_DIR)
-	cp $(proteins) $(PROTEINS)
+	[ ! -f $(PROTEINS) ] && cp $(proteins) $(PROTEINS) || echo "Not overwriting proteins file, remove it manually first!"
 
 $(COVERAGE): $(PROTEINS)
 	python data_preparation.py -v extract-peptides $(PROTEINS) $(COVERAGE) $(COVERAGE_OPTS)
@@ -93,4 +117,4 @@ $(POPCOVER_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACC
 	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACCINE) $(POPCOVER_EVAL)
 
 clean:
-	rm $(ALLELES) $(PROTEINS) $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(CLEAVAGES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL) $(POPCOVER_VACCINE) $(POPCOVER_EVAL) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)
+	rm -f $(ALLELES) $(PROTEINS) $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(CLEAVAGES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL) $(POPCOVER_VACCINE) $(POPCOVER_EVAL) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)

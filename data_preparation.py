@@ -1,4 +1,6 @@
 from __future__ import division, print_function
+import numpy as np
+from Fred2.CleavagePrediction import CleavageSitePredictorFactory, CleavageFragmentPredictorFactory
 import utilities
 
 import heapq
@@ -174,7 +176,7 @@ def get_binding_affinity_process(batch, alleles):
 @click.argument('input-alleles', type=click.Path())
 @click.argument('input-peptides', type=click.Path())
 @click.argument('output-affinities', type=click.Path())
-@click.option('--processes', '-p', default=-2)
+@click.option('--processes', '-p', default=-1)
 def compute_affinities(input_alleles, input_peptides, output_affinities, processes):
     ''' Computes the binding affinities between the given peptides and HLA alleles
     '''
@@ -205,7 +207,7 @@ def compute_affinities(input_alleles, input_peptides, output_affinities, process
     peptides.sort(key=lambda p: p[1], reverse=True)
     LOGGER.info('Loaded %d peptides', len(peptides))
 
-    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes - 1))
+    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
 
     try:
         tasks = []
@@ -298,6 +300,63 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
         writer.writeheader()
         writer.writerows(top_epitopes)
     LOGGER.info('Saved %d epitopes', len(top_epitopes))
+
+
+def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
+    predictor = CleavageSitePredictorFactory(cleavage_model)
+
+    results = []
+    for ep_from, ep_to in epitopes:
+        preds = predictor.predict(Peptide(ep_from + ep_to))
+        score = 0.0
+        join_pos = len(ep_from) - 1
+        half_size = (window_size - 1) / 2
+        for i, (_, lik) in enumerate(preds.values):
+            if i - 2 <= join_pos <= i + 2:
+                weight = -1 if i == join_pos else penalty
+                score += weight * lik
+        results.append((ep_from, ep_to, score))
+    return results
+
+
+@main.command()
+@click.argument('input-epitopes')
+@click.argument('output-cleavages')
+@click.option('--penalty', '-P', default=0.1, help='How much to penalize wrong cleavages around the desired cleavage site')
+@click.option('--cleavage-window', '-w', default=5, help='Size of the window to consider for wrong cleavages')
+@click.option('--cleavage-model', '-c', default='PCM', help='Which model to use to predict cleavage sites')
+@click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
+def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes, cleavage_window):
+    with open(input_epitopes) as f:
+        epitopes = [row['epitope'] for row in csv.DictReader(f)]
+    LOGGER.info('Loaded %d epitopes', len(epitopes))
+    
+    LOGGER.info('Predicting cleavage sites of all pairs...')
+    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
+
+    try:
+        tasks = []
+        for e in epitopes:
+            tasks.append(pool.apply_async(
+                get_cleavage_score_process,
+                (penalty, cleavage_model, cleavage_window, [(e, f) for f in epitopes])
+            ))
+        
+        with open(output_cleavages, 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(('from', 'to', 'score'))
+            for i, result in enumerate(tasks):
+                for e, f, score in result.get(99999):
+                    writer.writerow((e, f, score))
+                if is_percent_barrier(i, len(tasks), 5):
+                    LOGGER.debug('Processed %d cleavage pairs (%.2f%%)...',
+                                 len(epitopes) * (i + 1), 100 * (i + 1) / len(tasks))
+    except:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
+        pool.close()
 
 
 if __name__ == '__main__':

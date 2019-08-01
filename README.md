@@ -126,6 +126,29 @@ Following are the commands required to prepare the data:
    |    0.154… | HLA-C\*07:02;HLA-A\*24:02 | 19;14    | MYAPPIEGL |
    |    0.057… | HLA-A*02:01             | 6;15     | LLALDSWAS |
 
+4. Compute the cleavage scores between all pairs of epitopes:
+
+   ```
+   make cleavages  # customize options with CLEAVAGE_OPTS="..."
+   ```
+
+   Or:
+
+   ```
+   python data_preparation.py -v compute-cleavages dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-cleavages.csv
+   ```
+   
+   Sample output:
+
+   | from      | to        |   score |
+   | --------- | --------- | ------- |
+   | FLGAAGSTM | FLGAAGSTM | -0.001… |
+   | FLGAAGSTM | NVWATHACV |  0.798… |
+   | FLGAAGSTM | VTVYYGVPV |  0.673… |
+   | FLGAAGSTM | FIMIVGGLI |  1.222… |
+   | FLGAAGSTM | KLTPLCVTL |  1.310… |
+   | ...       | ...       |     ... |
+
 ## Vaccine Design
  - Mosaic: use the generalized framework to design a mosaic vaccine
    

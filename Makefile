@@ -1,4 +1,4 @@
-.PHONY: all alleles proteins coverage affinities epitopes mosaic-vaccine optitope-vaccine optitope-eval popcover-vaccine popcover-eval mosaic-eval clean
+.PHONY: all init alleles proteins coverage affinities epitopes cleavages mosaic-vaccine mosaic-eval mosaic optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
 
 BASE_DIR=./dev
 alleles:=./resources/alleles-small.csv
@@ -11,6 +11,8 @@ AFFINITIES:=$(BASE_DIR)/made-affinities.csv
 AFFINITIES_OPTS:=
 EPITOPES:=$(BASE_DIR)/made-epitopes.csv
 EPITOPES_OPTS:=
+CLEAVAGES:=$(BASE_DIR)/made-cleavages.csv
+CLEAVAGES_OPTS:=
 MOSAIC_VACCINE:=$(BASE_DIR)/made-mosaic-vaccine.csv
 MOSAIC_OPTS:=
 MOSAIC_EVAL:=$(BASE_DIR)/made-mosaic-evaluation.csv
@@ -28,6 +30,7 @@ proteins: $(PROTEINS)
 coverage: $(COVERAGE)
 affinities: $(AFFINITIES)
 epitopes: $(EPITOPES)
+cleavages: $(CLEAVAGES)
 mosaic-vaccine: $(MOSAIC_VACCINE)
 mosaic-eval: $(MOSAIC_EVAL)
 mosaic: mosaic-eval
@@ -55,6 +58,9 @@ $(AFFINITIES): $(COVERAGE) $(ALLELES)
 $(EPITOPES): $(ALLELES) $(COVERAGE) $(AFFINITIES)
 	python data_preparation.py -v extract-epitopes $(ALLELES) $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(EPITOPES_OPTS)
 
+$(CLEAVAGES): $(EPITOPES)
+	python data_preparation.py -v compute-cleavages $(EPITOPES) $(CLEAVAGES) $(CLEAVAGES_OPTS)
+
 $(MOSAIC_VACCINE): $(EPITOPES)
 	python design.py -v mosaic $(EPITOPES) $(MOSAIC_VACCINE) $(MOSAIC_OPTS)
 
@@ -74,4 +80,4 @@ $(POPCOVER_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACC
 	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACCINE) $(POPCOVER_EVAL)
 
 clean:
-	rm $(ALLELES) $(PROTEINS) $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL) $(POPCOVER_VACCINE) $(POPCOVER_EVAL) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)
+	rm $(ALLELES) $(PROTEINS) $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(CLEAVAGES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL) $(POPCOVER_VACCINE) $(POPCOVER_EVAL) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)

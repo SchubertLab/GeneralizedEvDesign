@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import random
 import numpy as np
 from Fred2.CleavagePrediction import CleavageSitePredictorFactory, CleavageFragmentPredictorFactory
 import utilities
@@ -99,6 +100,38 @@ def main(verbose):
 def is_percent_barrier(i, n, p):
     ''' returns true if i is on the boundary between two p% blocks of n '''
     return int(100.0 / p * (i + 1) / n) > int(100 / p * i / n)
+
+
+@main.command()
+@click.argument('input-sequences', type=click.Path())
+@click.argument('count')
+@click.argument('output-sequences', type=click.Path())
+@click.option('--seed', '-s', help='Seed to use for the random selection')
+def random_sequences(input_sequences, count, output_sequences, seed):
+    with open(input_sequences) as f:
+        prots = []
+        for row in f:
+            if row.startswith('>'):
+                prots.append([row])
+            else:
+                prots[-1].append(row)
+    LOGGER.info('Read %d sequences', len(prots))
+
+    count = float(count)
+    if count < 0:
+        count = len(prots) + count
+    elif count < 1:
+        count = int(count * len(prots))
+    else:
+        count = int(count)
+
+    random.seed(seed)
+    sample = random.sample(prots, count)
+    with open(output_sequences, 'w') as f:
+        for prot in sample:
+            f.writelines(prot)
+
+    LOGGER.info('Randomly selected %d sequences', count)
 
 
 @main.command()
@@ -310,9 +343,9 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
         preds = predictor.predict(Peptide(ep_from + ep_to))
         score = 0.0
         join_pos = len(ep_from) - 1
-        half_size = (window_size - 1) / 2
+        half_size = int((window_size - 1) / 2)
         for i, (_, lik) in enumerate(preds.values):
-            if i - 2 <= join_pos <= i + 2:
+            if i - half_size <= join_pos <= i + half_size:
                 weight = -1 if i == join_pos else penalty
                 score += weight * lik
         results.append((ep_from, ep_to, score))

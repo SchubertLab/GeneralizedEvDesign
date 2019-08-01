@@ -110,7 +110,9 @@ Following are the commands required to prepare the data:
    make epitopes   # customize options with EPITOPES_OPTS="..."
    ```
 
-   Or:
+   Note that make will automatically use the intermediate files produced previously.
+
+   Manual invocation via:
 
    ```
    python data_preparation.py -v extract-epitopes resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv dev/hiv1-bc-env-small-epitopes.csv

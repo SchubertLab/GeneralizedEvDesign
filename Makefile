@@ -1,10 +1,10 @@
-.PHONY: all init alleles proteins coverage affinities epitopes cleavages mosaic-vaccine mosaic-eval mosaic string-of-beads-vaccine string-of-beads-eval string-of-beads optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
+.PHONY: all init alleles proteins coverage affinities epitopes cleavages preparation mosaic-vaccine mosaic-eval mosaic string-of-beads-vaccine string-of-beads-eval string-of-beads optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
 
 BASE_DIR=./dev
 alleles:=./resources/alleles-small.csv
 ALLELES:=$(BASE_DIR)/made-alleles.csv
 proteins:=./resources/hiv1-bc-env-small.fasta 
-PROTEINS:=$(BASE_DIR)/made-proteins.csv
+PROTEINS:=$(BASE_DIR)/made-proteins.fasta
 COVERAGE:=$(BASE_DIR)/made-coverage.csv
 COVERAGE_OPTS:=
 AFFINITIES:=$(BASE_DIR)/made-affinities.csv
@@ -34,6 +34,7 @@ coverage: $(COVERAGE)
 affinities: $(AFFINITIES)
 epitopes: $(EPITOPES)
 cleavages: $(CLEAVAGES)
+preparation: cleavages epitopes affinities coverage
 mosaic-vaccine: $(MOSAIC_VACCINE)
 mosaic-eval: $(MOSAIC_EVAL)
 mosaic: mosaic-eval

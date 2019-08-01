@@ -1,6 +1,9 @@
 # Generalized Epitope-based Vaccine Design
 General graph-based framework to design epitope vaccines.
 
+# Setup
+This framework makes heavy use of [Fred2](https://github.com/SchubertLab/Fred2) and one of the persistent solvers supported by Pyomo (currently either [Gurobi](https://www.gurobi.com/), which is the default we use, or [CPLEX](https://www.ibm.com/analytics/cplex-optimizer)).
+
 # Quick Start
 For your convenience, we provide a makefile that invokes the necessary commands in the right order and with the right arguments, using the sample files in the `resources` folder:
 
@@ -8,7 +11,7 @@ For your convenience, we provide a makefile that invokes the necessary commands 
 make
 ```
 
-This will process the data, produce the vaccine using three different methods, and save their evaluation in `dev/mosaic-evaluation.csv`, `dev/popcover-evaluation.csv` and `dev/optitope-evaluation.csv`
+This will process the data, produce the vaccine using all the supported methods, and save their evaluation in the `dev` folder. The vaccines are files named `made-<method>-vaccine.csv` and their evaluations are named `made-<method>-evaluation.csv.`
 
 For a little more control, the following command allows you to specify the required input files and the output folder:
 
@@ -176,7 +179,7 @@ Following are the commands required to prepare the data:
    python design.py -v string-of-beads dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-cleavages dev/hiv1-bc-env-small-vaccine-string-of-beads.csv
    ```
 
- - OptiTope: 
+ - OptiTope: based on [1] and [2]
 
    ```
    make optitope-vaccine  # customize options with OPTITOPE_OPTS="..."
@@ -188,7 +191,7 @@ Following are the commands required to prepare the data:
    python design.py -v optitope dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-optitope.csv
    ```
 
-- PopCover
+- PopCover: based on [3]
 
    ```
    make popcover-vaccine  # customize options with POPCOVER_OPTS="..."
@@ -217,7 +220,9 @@ Evaluation computes the following metrics: total immunogenicity, allele coverage
 make mosaic-evaluation  # make mosaic is also valid
 ```
 
-Make can of course evaluate the vaccines produced by all three methods via `make mosaic`, `make optitope` and `make popcover`. The full command is as follows, make sure to use the correct input file for the vaccine:
+Make can of course evaluate the vaccines produced by all methods via `make <method>-evaluation`, or simply `make <method>`.
+
+The full command is as follows, make sure to use the correct input file for the vaccine:
 
 ```
 python evaluation.py -v resources/hiv1-bc-env-small.fasta dev/hiv1-bc-env-small-coverage.csv resources/alleles-small.csv dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv dev/hiv1-bc-env-small-evaluation-mosaic.csv
@@ -228,3 +233,8 @@ Sample output:
 | norm_prot_coverage | prot_coverage | pop_coverage | conservation | rel_pop_coverage | immunogen | max_pop_coverage |
 | ------------------ | ------------- | ------------ | ------------ | ---------------- | --------- | ---------------- |
 |               0.75 |            15 |       0.524… |       0.105… |           0.780… |    1.960… |           0.671… |
+
+# References
+[1] Toussaint NC, D ̈onnes P, Kohlbacher O. A mathematical framework for the selection of an optimal set of peptides forepitope-based vaccines.PLoS Comput Biol2008:4: e1000246.17.
+[2] Toussaint NC, Kohlbacher O. OptiTope – a web server for theselection of an optimal set of peptides for epitope-basedvaccines.Nucleic Acids Res2009:37(suppl 2): W617–W622
+[3] Lundegaard C, Buggert M, Karlsson A, Lund O, Perez C,Nielsen M. PopCover: a method for selecting of peptides withoptimal population and pathogen coverage. In:Proceedings ofthe First ACM International Conference on Bioinformatics andComputational Biology,2010.ACM

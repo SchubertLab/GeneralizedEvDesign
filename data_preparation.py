@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import itertools
 import random
 import numpy as np
 from Fred2.CleavagePrediction import CleavageSitePredictorFactory, CleavageFragmentPredictorFactory
@@ -266,8 +267,9 @@ def compute_affinities(input_alleles, input_peptides, output_affinities, process
 @click.argument('input-peptides', type=click.Path())
 @click.argument('input-affinities', type=click.Path())
 @click.argument('output-bindings', type=click.Path())
-@click.option('--top-coverage', '-c', default=0, help='Only save the top N epitopes by protein coverage')
-def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bindings, top_coverage):
+@click.option('--top-conservation', '-c', default=0.0, help='Only save the top N epitopes by protein coverage')
+@click.option('--min-conservation', '-C', default=0.0, help='Only save epitopes covering at least this percent proteins')
+def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bindings, top_conservation, min_conservation):
     ''' Extract epitopes, their immunogenicity and their coverage.
     '''
 
@@ -311,11 +313,13 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
     
     # load protein coverage
     coverage = {}
+    all_proteins = set()
     with open(input_peptides) as f:
         for row in csv.DictReader(f):
             epitope = row.pop('peptide')
             coverage[epitope] = row
-    LOGGER.info('Loaded %d peptides with coverage', len(coverage))
+            all_proteins.update(set(row['proteins'].split(';')))
+    LOGGER.info('Loaded %d proteins and %d peptides', len(all_proteins), len(coverage))
     
     # merge epitopes and coverage
     merged = []
@@ -326,8 +330,31 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
     LOGGER.info('Merged coverage and affinities')
 
     # find top N and save
-    merged.sort(key=lambda e: e['proteins'].count(';'), reverse=True)
-    top_epitopes = merged[:top_coverage] if top_coverage > 0 else merged
+    if top_conservation > 0 and min_conservation > 0:
+        LOGGER.error('--top-conservation and --min-conservation both specified! Please choose at most one of them')
+        return -1
+    elif top_conservation > 0:
+        merged.sort(key=lambda e: e['proteins'].count(';'), reverse=True)
+        if top_conservation < 1:
+            top_conservation = len(merged) * top_conservation
+        LOGGER.info('Only saving the top %d conserved epitopes', int(top_conservation))
+        top_epitopes = merged[:int(top_conservation)]
+    elif min_conservation > 0:
+        if min_conservation > 1:
+            min_conservation /= 100.0
+        min_proteins = int(min_conservation * len(all_proteins))
+        LOGGER.info('Only saving epitopes covering at least %d proteins', min_proteins)
+        top_epitopes = list(itertools.takewhile(
+            lambda e: e['proteins'].count(';') + 1 >= min_proteins,
+            merged
+        ))
+    else:
+        top_epitopes = merged
+    
+    if not top_epitopes:
+        LOGGER.error("No epitopes selected!")
+        return -1
+    
     with open(output_bindings, 'w') as f:
         writer = csv.DictWriter(f, fieldnames=merged[0].keys())
         writer.writeheader()
@@ -381,7 +408,7 @@ def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty,
             for i, result in enumerate(tasks):
                 for e, f, score in result.get(99999):
                     writer.writerow((e, f, score))
-                if is_percent_barrier(i, len(tasks), 5):
+                if is_percent_barrier(i, len(tasks), 1):
                     LOGGER.debug('Processed %d cleavage pairs (%.2f%%)...',
                                  len(epitopes) * (i + 1), 100 * (i + 1) / len(tasks))
     except:

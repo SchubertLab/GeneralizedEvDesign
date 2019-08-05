@@ -7,21 +7,38 @@ from Fred2.EpitopePrediction import EpitopePredictionResult
 import csv
 
 
-def load_epitopes(epitopes_file, top_n=0):
+def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_proteins=None):
+    ''' loads the epitopes from the given file, returning a dictionary mapping the epitope string to its data
+        optionally filters the epitopes by only taking the top N with the highest immunogenicity,
+        or with the largest allele/protein coverage. if multiple options are given, the union of the
+        matching epitopes is returned.
+    '''
     with open(epitopes_file) as f:
-        epitope_data = []
+        epitope_data = {}
         for row in csv.DictReader(f):
             row['immunogen'] = float(row['immunogen'])
             row['proteins'] = row['proteins'].split(';')
             row['alleles'] = row['alleles'].split(';')
-            epitope_data.append(row)
+            epitope_data[row['epitope']] = row
 
-    if top_n > 0:
-        count = int(top_n) if top_n > 1 else int(top_n * len(epitope_data))
-        epitope_data.sort(key=lambda e: len(e['proteins']), reverse=True)
-        epitope_data = epitope_data[:count]
+    if top_immunogen is None and top_alleles is None and top_proteins is None:
+        return epitope_data
+
+    def filter_epitopes(epitopes, top_count, top_key):
+        assert top_count > 0
+        count = int(top_count) if top_count > 1 else int(top_count * len(epitopes))
+        best = sorted(epitopes, key=lambda e: top_key(epitopes[e]), reverse=True)
+        return set(best[:count])
+
+    top_epitopes = set()
+    if top_immunogen:
+        top_epitopes.update(filter_epitopes(epitope_data, top_immunogen, lambda e: e['immunogen']))
+    if top_alleles:
+        top_epitopes.update(filter_epitopes(epitope_data, top_alleles, lambda e: len(e['alleles'])))
+    if top_proteins:
+        top_epitopes.update(filter_epitopes(epitope_data, top_proteins, lambda e: len(e['proteins'])))
     
-    return epitope_data
+    return {e: epitope_data[e] for e in top_epitopes}
 
 
 def get_alleles_and_thresholds(allele_file):

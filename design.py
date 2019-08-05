@@ -89,41 +89,43 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('input-cleavages', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
-@click.option('--top-conservation', help='Only consider the top epitopes by protein coverage', type=float)
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
-def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, max_aminoacids, max_epitopes, top_conservation):
+def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, max_aminoacids, max_epitopes):
     program_start_time = time.time()
 
-    # load bindings
-    bindings = utilities.load_epitopes(input_epitopes, top_conservation)
-    LOGGER.info('Loaded %d epitopes', len(bindings))
+    # load epitopes
+    epitopes = {e['epitope']: e for e in utilities.load_epitopes(input_epitopes)}
+    LOGGER.info('Loaded %d epitopes', len(epitopes))
 
-    epitopes = [''] + [b['epitope'] for b in bindings]
-    vertex_rewards = [0] + [b['immunogen'] for b in bindings]
-
-    # read cleavage scores and compute edge cost
+    # read cleavage scores
+    cleavage_epitopes = set()
     with open(input_cleavages) as f:
         cleavages = {}
         for row in csv.DictReader(f):
             cleavages[(row['from'], row['to'])] = float(row['score'])
+            cleavage_epitopes.add(row['from'])
+            cleavage_epitopes.add(row['to'])
     LOGGER.info('Loaded %d cleavage scores', len(cleavages))
 
-    edge_cost = []
-    for ep_from in epitopes:
+    # compute edge cost
+    edge_cost, vertices, vertices_rewards = [], [], []
+    cleavage_epitopes = [''] + list(cleavage_epitopes)
+    for ep_from in cleavage_epitopes:
+        vertices.append(ep_from)
+        vertices_rewards.append(0 if ep_from == '' else epitopes[ep_from]['immunogen'])
         edge_cost.append([
             cleavages[(ep_from, ep_to)] if ep_from != '' and ep_to != '' else 0.0
-            for ep_to in epitopes
+            for ep_to in cleavage_epitopes
         ])
-
-    solver = TeamOrienteeringIlp(
-        num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edge_cost,
-        max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
-    )
 
     # find optimal design
     solver_build_time = time.time()
+    solver = TeamOrienteeringIlp(
+        num_teams=cocktail, vertex_reward=vertices_rewards, edge_cost=edge_cost,
+        max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
+    )
     solver.build_model()
     solver_start_time = time.time()
     result = solver.solve()
@@ -136,8 +138,8 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, m
         for i, mosaic in enumerate(result):
             LOGGER.info('Mosaic #%d', i + 1)
             for j, (_, vertex) in enumerate(mosaic[:-1]):
-                writer.writerow((i, j, bindings[vertex - 1]['epitope']))
-                LOGGER.info('    %s - IG: %.2f', bindings[vertex - 1]['epitope'], bindings[vertex - 1]['immunogen'])
+                writer.writerow((i, j, epitopes[vertex - 1]['epitope']))
+                LOGGER.info('    %s - IG: %.2f', epitopes[vertex - 1]['epitope'], epitopes[vertex - 1]['immunogen'])
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)

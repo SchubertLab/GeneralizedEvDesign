@@ -44,6 +44,9 @@ OPTITOPE_VACCINE				?= $(BASE_DIR)/$(OPTITOPE_VACCINE_NAME)
 OPTITOPE_OPTS					?= 
 OPTITOPE_EVAL_NAME				?= made-optitope-evaluation.csv
 OPTITOPE_EVAL					?= $(BASE_DIR)/$(OPTITOPE_EVAL_NAME)
+AGGREGATE_EVAL_NAME				?= made-aggregate-evaluation.csv
+AGGREGATE_EVAL					?= $(BASE_DIR)/$(AGGREGATE_EVAL_NAME)
+AGGREGATE_PATH_SPEC				?= $(BASE_DIR)/made-*-evaluation.csv
 
 # define aliases
 all: mosaic string-of-beads optitope popcover
@@ -67,6 +70,7 @@ optitope: optitope-eval
 popcover-vaccine: $(POPCOVER_VACCINE)
 popcover-eval: $(POPCOVER_EVAL)
 popcover: popcover-eval
+aggregate-eval: $(AGGREGATE_EVAL)
 
 # we only copy the input files when the targets are missing
 # this is to prevent somebody from accedentally overwriting them with the samples in the resources folder
@@ -96,25 +100,28 @@ $(MOSAIC_VACCINE): $(EPITOPES)
 	python design.py -v mosaic $(EPITOPES) $(MOSAIC_VACCINE) $(MOSAIC_OPTS)
 
 $(MOSAIC_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(MOSAIC_VACCINE)
-	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL)
+	python evaluation.py -v vaccine $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL)
 
 $(STRING_OF_BEADS_VACCINE): $(EPITOPES) $(CLEAVAGES)
 	python design.py -v string-of-beads $(EPITOPES) $(CLEAVAGES) $(STRING_OF_BEADS_VACCINE)
 
 $(STRING_OF_BEADS_EVAL): $(STRING_OF_BEADS_VACCINE)
-	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(STRING_OF_BEADS_VACCINE) $(STRING_OF_BEADS_EVAL)
+	python evaluation.py -v vaccine $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(STRING_OF_BEADS_VACCINE) $(STRING_OF_BEADS_EVAL)
 
 $(OPTITOPE_VACCINE): $(AFFINITIES) $(ALLELES)
 	python design.py -v optitope $(AFFINITIES) $(ALLELES) $(OPTITOPE_VACCINE) $(OPTITOPE_OPTS)
 
 $(OPTITOPE_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(OPTITOPE_VACCINE) $(EPITOPES)
-	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)
+	python evaluation.py -v vaccine $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)
 
 $(POPCOVER_VACCINE): $(COVERAGE) $(AFFINITIES) $(ALLELES)
 	python design.py -v popcover $(COVERAGE) $(AFFINITIES) $(ALLELES) $(POPCOVER_VACCINE) $(OPTITOPE_OPTS)
 
 $(POPCOVER_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACCINE)
-	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACCINE) $(POPCOVER_EVAL)
+	python evaluation.py -v vaccine $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACCINE) $(POPCOVER_EVAL)
+
+$(AGGREGATE_EVAL): $(MOSAIC_EVAL) $(STRING_OF_BEADS_EVAL) $(OPTITOPE_EVAL) $(POPCOVER_EVAL)
+	python evaluation.py -v aggregate $(AGGREGATE_PATH_SPEC) $(AGGREGATE_EVAL)
 
 clean:
 	rm -f $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(CLEAVAGES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL) $(POPCOVER_VACCINE) $(POPCOVER_EVAL) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)

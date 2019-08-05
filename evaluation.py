@@ -1,4 +1,6 @@
 from __future__ import division, print_function
+import re
+import glob
 from collections import defaultdict
 import csv
 import utilities
@@ -31,7 +33,14 @@ from team_orienteering_ilp import TeamOrienteeringIlp
 LOGGER = None
 
 
-@click.command()
+@click.group()
+@click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
+def main(verbose):
+    global LOGGER
+    LOGGER = utilities.init_logging(verbose)
+
+
+@main.command()
 @click.argument('input-sequences', type=click.Path())
 @click.argument('input-peptides', type=click.Path())
 @click.argument('input-alleles', type=click.Path())
@@ -39,10 +48,7 @@ LOGGER = None
 @click.argument('input-vaccine', type=click.Path())
 @click.argument('output-summary', type=click.Path())
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
-def main(input_sequences, input_peptides, input_alleles, input_epitopes, input_vaccine, output_summary, verbose):
-    global LOGGER
-    LOGGER = utilities.init_logging(verbose)
-
+def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, input_vaccine, output_summary, verbose):
     # load vaccine
     with open(input_vaccine) as f:
         vaccine = {}
@@ -153,6 +159,62 @@ def main(input_sequences, input_peptides, input_alleles, input_epitopes, input_v
         writer = csv.DictWriter(f, vaccine_stats.keys())
         writer.writeheader()
         writer.writerow(vaccine_stats)
+
+
+@main.command()
+@click.argument('path-spec')
+@click.argument('output-aggregate')
+@click.option('--path-format', help='Regex that specifies which parts of the path go to which column of the result')
+@click.option('--summary-by', '-s', multiple=True, help='Log summarized evaluation metrics after grouping by these columns')
+@click.option('--output-summary', '-S', help='In addition to logging, save the summary to this file')
+def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summary):
+    fnames = glob.glob(path_spec)
+    if not fnames:
+        LOGGER.error('Path specification did not match any files!')
+        return -1
+    
+    dataframes = []
+    for f in fnames:
+        LOGGER.debug('Parsing %s...', f)
+        if path_format:
+            match = re.match(path_format, f)
+            if match is None:
+                LOGGER.error('File "%s" did not match the given pattern, quitting', f)
+                return -2
+
+            groups = match.groupdict()
+            if not groups:
+                groups = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', match.groups()))
+                if not groups:
+                    LOGGER.error('No capturing groups specified in the regex')
+                    return -3
+        else:
+            groups = {}
+        
+        df = pd.read_csv(f)
+        df['source'] = f
+        for col, val in groups.iteritems():
+            df[col] = val
+        
+        dataframes.append(df)
+    LOGGER.info('Parsed %d result files', len(dataframes))
+
+    res_df = pd.concat(dataframes, ignore_index=True)
+    res_df.to_csv(output_aggregate, index=False)
+    LOGGER.info('Saved raw results to %s', output_aggregate)
+
+    if summary_by:
+        LOGGER.info('Summary of the results, grouped by %s', ', '.join(summary_by))
+        summary = res_df.groupby(list(summary_by)).apply(lambda g: g.describe().T)
+        # bring the columns at the outermost level to facilitate comparing the same metric among different evaluations
+        summary.index = summary.index.reorder_levels([len(summary_by)] + range(len(summary_by)))
+        summary.sort_index(inplace=True)
+        for row in summary.to_string().split('\n'):
+            LOGGER.info(row)
+
+        if output_summary:
+            summary.to_csv(output_summary)
+            LOGGER.info('Saved summary to %s', output_summary)
 
 
 if __name__ == '__main__':

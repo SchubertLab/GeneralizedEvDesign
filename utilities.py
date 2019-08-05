@@ -7,6 +7,23 @@ from Fred2.EpitopePrediction import EpitopePredictionResult
 import csv
 
 
+def load_epitopes(epitopes_file, top_n=0):
+    with open(epitopes_file) as f:
+        epitope_data = []
+        for row in csv.DictReader(f):
+            row['immunogen'] = float(row['immunogen'])
+            row['proteins'] = row['proteins'].split(';')
+            row['alleles'] = row['alleles'].split(';')
+            epitope_data.append(row)
+
+    if top_n > 0:
+        count = int(top_n) if top_n > 1 else int(top_n * len(epitope_data))
+        epitope_data.sort(key=lambda e: len(e['proteins']), reverse=True)
+        epitope_data = epitope_data[:count]
+    
+    return epitope_data
+
+
 def get_alleles_and_thresholds(allele_file):
     df = pd.read_csv(allele_file, index_col=['allele'])
     return df

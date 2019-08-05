@@ -360,16 +360,9 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
 @click.option('--cleavage-model', '-c', default='PCM', help='Which model to use to predict cleavage sites')
 @click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
 def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes, cleavage_window, top_conservation):
-    with open(input_epitopes) as f:
-        epitope_data = list(csv.DictReader(f))
-    LOGGER.info('Loaded %d epitopes', len(epitope_data))
-
-    if top_conservation > 0:
-        count = int(top_conservation) if top_conservation > 1 else int(top_conservation * len(epitope_data))
-        epitope_data.sort(key=lambda e: e['proteins'].count(';'), reverse=True)
-        epitope_data = epitope_data[:count]
-        LOGGER.info('Kept %d epitopes after filtering by conservation', count)
+    epitope_data = utilities.load_epitopes(input_epitopes, top_conservation)
     epitopes = [e['epitope'] for e in epitope_data]
+    LOGGER.info('Loaded %d epitopes', len(epitopes))
     
     LOGGER.info('Predicting cleavage sites of all pairs...')
     pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))

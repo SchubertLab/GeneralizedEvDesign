@@ -41,19 +41,15 @@ def main(verbose):
 @main.command()
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
+@click.option('--top-conservation', help='Only consider the top epitopes by protein coverage', type=float)
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
-def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes):
+def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes, top_conservation):
     program_start_time = time.time()
 
-    # load bindings
-    with open(input_epitopes) as f:
-        bindings = []
-        for row in csv.DictReader(f):
-            row['immunogen'] = float(row['immunogen'])
-            if row['immunogen'] > 0:
-                bindings.append(row)
+    # load epitopes
+    bindings = utilities.load_epitopes(input_epitopes, top_conservation)
     LOGGER.info('Loaded %d epitopes', len(bindings))
 
     # compute edge cost and create solver
@@ -93,20 +89,17 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('input-cleavages', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
+@click.option('--top-conservation', help='Only consider the top epitopes by protein coverage', type=float)
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
-def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, max_aminoacids, max_epitopes):
+def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, max_aminoacids, max_epitopes, top_conservation):
     program_start_time = time.time()
 
     # load bindings
-    with open(input_epitopes) as f:
-        bindings = []
-        for row in csv.DictReader(f):
-            row['immunogen'] = float(row['immunogen'])
-            if row['immunogen'] > 0:
-                bindings.append(row)
+    bindings = utilities.load_epitopes(input_epitopes, top_conservation)
     LOGGER.info('Loaded %d epitopes', len(bindings))
+
     epitopes = [''] + [b['epitope'] for b in bindings]
     vertex_rewards = [0] + [b['immunogen'] for b in bindings]
 

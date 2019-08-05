@@ -41,20 +41,22 @@ def main(verbose):
 @main.command()
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
-@click.option('--top-conservation', help='Only consider the top epitopes by protein coverage', type=float)
+@click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', type=float)
+@click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
+@click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
-def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes, top_conservation):
+def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes, top_proteins, top_immunogen, top_alleles):
     program_start_time = time.time()
 
     # load epitopes
-    bindings = utilities.load_epitopes(input_epitopes, top_conservation)
-    LOGGER.info('Loaded %d epitopes', len(bindings))
+    epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
+    LOGGER.info('Loaded %d epitopes', len(epitope_data))
 
     # compute edge cost and create solver
-    epitopes = [''] + [b['epitope'] for b in bindings]
-    vertex_rewards = [0] + [b['immunogen'] for b in bindings]
+    epitopes = [''] + [b['epitope'] for b in epitope_data]
+    vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
     edge_cost = utilities.compute_suffix_prefix_cost(epitopes)
     solver = TeamOrienteeringIlp(
         num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edge_cost,
@@ -75,8 +77,8 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
         for i, mosaic in enumerate(result):
             LOGGER.info('Mosaic #%d', i + 1)
             for j, (_, vertex) in enumerate(mosaic[:-1]):
-                writer.writerow((i, j, bindings[vertex - 1]['epitope']))
-                LOGGER.info('    %s - IG: %.2f', bindings[vertex - 1]['epitope'], bindings[vertex - 1]['immunogen'])
+                writer.writerow((i, j, epitope_data[vertex - 1]['epitope']))
+                LOGGER.info('    %s - IG: %.2f', epitope_data[vertex - 1]['epitope'], epitope_data[vertex - 1]['immunogen'])
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)
@@ -96,7 +98,7 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, m
     program_start_time = time.time()
 
     # load epitopes
-    epitopes = {e['epitope']: e for e in utilities.load_epitopes(input_epitopes)}
+    epitopes = utilities.load_epitopes(input_epitopes)
     LOGGER.info('Loaded %d epitopes', len(epitopes))
 
     # read cleavage scores
@@ -111,13 +113,13 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, m
 
     # compute edge cost
     edge_cost, vertices, vertices_rewards = [], [], []
-    cleavage_epitopes = [''] + list(cleavage_epitopes)
-    for ep_from in cleavage_epitopes:
+    vertex_to_epitope = [''] + list(cleavage_epitopes)
+    for ep_from in vertex_to_epitope:
         vertices.append(ep_from)
         vertices_rewards.append(0 if ep_from == '' else epitopes[ep_from]['immunogen'])
         edge_cost.append([
             cleavages[(ep_from, ep_to)] if ep_from != '' and ep_to != '' else 0.0
-            for ep_to in cleavage_epitopes
+            for ep_to in vertex_to_epitope
         ])
 
     # find optimal design
@@ -138,8 +140,9 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, m
         for i, mosaic in enumerate(result):
             LOGGER.info('Mosaic #%d', i + 1)
             for j, (_, vertex) in enumerate(mosaic[:-1]):
-                writer.writerow((i, j, epitopes[vertex - 1]['epitope']))
-                LOGGER.info('    %s - IG: %.2f', epitopes[vertex - 1]['epitope'], epitopes[vertex - 1]['immunogen'])
+                epitope = epitopes[vertex_to_epitope[vertex]]
+                writer.writerow((i, j, epitope['epitope']))
+                LOGGER.info('    %s - IG: %.2f', epitope['epitope'], epitope['immunogen'])
 
     LOGGER.info('==== Stopwatch')
     LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)

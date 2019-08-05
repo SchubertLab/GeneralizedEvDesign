@@ -354,14 +354,15 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
 @main.command()
 @click.argument('input-epitopes')
 @click.argument('output-cleavages')
-@click.option('--top-conservation', help='Only consider the top epitopes by protein coverage', type=float)
+@click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', type=float)
+@click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
+@click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
 @click.option('--penalty', '-P', default=0.1, help='How much to penalize wrong cleavages around the desired cleavage site')
 @click.option('--cleavage-window', '-w', default=5, help='Size of the window to consider for wrong cleavages')
 @click.option('--cleavage-model', '-c', default='PCM', help='Which model to use to predict cleavage sites')
 @click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
-def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes, cleavage_window, top_conservation):
-    epitope_data = utilities.load_epitopes(input_epitopes, top_conservation)
-    epitopes = [e['epitope'] for e in epitope_data]
+def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes, cleavage_window, top_proteins, top_immunogen, top_alleles):
+    epitopes = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).keys()
     LOGGER.info('Loaded %d epitopes', len(epitopes))
     
     LOGGER.info('Predicting cleavage sites of all pairs...')

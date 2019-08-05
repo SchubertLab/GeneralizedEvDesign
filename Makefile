@@ -46,7 +46,7 @@ OPTITOPE_EVAL_NAME				?= made-optitope-evaluation.csv
 OPTITOPE_EVAL					?= $(BASE_DIR)/$(OPTITOPE_EVAL_NAME)
 
 # define aliases
-all: mosaic optitope popcover
+all: mosaic string-of-beads optitope popcover
 init: $(ALLELES) $(PROTEINS)
 alleles: $(ALLELES)
 proteins: $(PROTEINS)
@@ -71,7 +71,7 @@ popcover: popcover-eval
 # we only copy the input files when the targets are missing
 # this is to prevent somebody from accedentally overwriting them with the samples in the resources folder
 # when they run make -B <something>
-# NB: make -B will redo *everything*, in order to only make the target you specify, you should touch one of its dependencies
+# NB: make -B will redo *everything*, in order to only make the target you specify, you should remove its output 
 $(ALLELES):
 	mkdir -p $(BASE_DIR)
 	[ ! -f $(ALLELES) ] && cp $(alleles) $(ALLELES) || echo "Not overwriting allele file, remove it manually first!"
@@ -117,4 +117,4 @@ $(POPCOVER_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACC
 	python evaluation.py -v $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(POPCOVER_VACCINE) $(POPCOVER_EVAL)
 
 clean:
-	rm -f $(ALLELES) $(PROTEINS) $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(CLEAVAGES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL) $(POPCOVER_VACCINE) $(POPCOVER_EVAL) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)
+	rm -f $(COVERAGE) $(AFFINITIES) $(EPITOPES) $(CLEAVAGES) $(MOSAIC_VACCINE) $(MOSAIC_EVAL) $(POPCOVER_VACCINE) $(POPCOVER_EVAL) $(OPTITOPE_VACCINE) $(OPTITOPE_EVAL)

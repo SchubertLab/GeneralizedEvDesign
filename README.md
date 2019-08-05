@@ -236,5 +236,7 @@ Sample output:
 
 # References
 [1] Toussaint NC, D ̈onnes P, Kohlbacher O. A mathematical framework for the selection of an optimal set of peptides forepitope-based vaccines.PLoS Comput Biol2008:4: e1000246.17.
+
 [2] Toussaint NC, Kohlbacher O. OptiTope – a web server for theselection of an optimal set of peptides for epitope-basedvaccines.Nucleic Acids Res2009:37(suppl 2): W617–W622
+
 [3] Lundegaard C, Buggert M, Karlsson A, Lund O, Perez C,Nielsen M. PopCover: a method for selecting of peptides withoptimal population and pathogen coverage. In:Proceedings ofthe First ACM International Conference on Bioinformatics andComputational Biology,2010.ACM

@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+from collections import defaultdict
 import csv
 import utilities
 
@@ -62,14 +63,17 @@ def main(input_sequences, input_peptides, input_alleles, input_epitopes, input_v
     LOGGER.info('Loaded %d alleles', len(allele_data))
 
     # load peptides coverage
-    max_coverage = {}
+    peptides = {}
     with open(input_peptides) as f:
         for row in csv.DictReader(f):
-            max_coverage[row['peptide']] = row
-    LOGGER.info('Loaded %d peptides with coverage', len(max_coverage))
+            peptides[row['peptide']] = row['proteins'].split(';')
+    LOGGER.info('Loaded %d peptides with coverage', len(peptides))
 
-    # load bindings
-    epitopes = {}
+    # load epitopes (also fill peptides since some design methods do not use epitopes)
+    epitopes = {
+        pep: {'immunogen': 0.0, 'alleles': [], 'proteins': prots}
+        for pep, prots in peptides.iteritems()
+    }
     with open(input_epitopes) as f:
         for row in csv.DictReader(f):
             row['immunogen'] = float(row['immunogen'])

@@ -116,15 +116,16 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
         return coverage
 
     max_coverage = compute_allele_coverage(allele_data.keys())
-    LOGGER.info(
-        'The given set of alleles covers %.2f%% of the population', 100 * max_coverage)
+    LOGGER.info('The given set of alleles covers %.2f%% of the population', 100 * max_coverage)
 
-    vaccine_coverage = compute_allele_coverage(
+    vaccine_alleles = set([
         allele
         for mosaic in cocktail
         for epitope in mosaic
         for allele in epitopes[epitope]['alleles']
-    )
+    ])
+    LOGGER.info('The vaccine covers %d different alleles', len(vaccine_alleles))
+    vaccine_coverage = compute_allele_coverage(vaccine_alleles)
     LOGGER.info('The vaccine covers %.2f%% of the population (%.2f%% of the maximum theoretical coverage)',
                 100 * vaccine_coverage, 100 * vaccine_coverage / max_coverage)
 
@@ -148,6 +149,7 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
 
     vaccine_stats = {
         'immunogen': immunogen,
+        'alleles': len(vaccine_alleles),
         'pop_coverage': vaccine_coverage,
         'max_pop_coverage': max_coverage,
         'rel_pop_coverage': vaccine_coverage / max_coverage,

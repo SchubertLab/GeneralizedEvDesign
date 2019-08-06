@@ -31,6 +31,43 @@ from team_orienteering_ilp import TeamOrienteeringIlp
 LOGGER = None
 
 
+def compute_coverage_matrix(epitope_data, min_alleles, min_proteins):
+    # compute allele coverage matrix
+    type_coverage, min_type_coverage = [], []
+    if min_alleles > 0:
+        alleles = [''] + list(set(a for e in epitope_data for a in e['alleles']))
+        type_coverage.append(np.array([[0] * len(alleles)] + [
+            [int(a in e['alleles']) for a in alleles]
+            for e in epitope_data
+        ]))
+        count = int(min_alleles) if min_alleles > 1 else int(min_alleles * len(alleles))
+        min_type_coverage.append(count)
+        LOGGER.info('Vaccine will cover at least %d alleles', count)
+
+    # compute protein coverage matrix
+    if min_proteins:
+        proteins = [''] + list(set(p for e in epitope_data for p in e['proteins']))
+        type_coverage.append(np.array([[0] * len(proteins)] + [
+            [int(p in e['proteins']) for p in proteins]
+            for e in epitope_data
+        ]))
+        count = int(min_proteins) if min_proteins > 1 else int(min_proteins * len(proteins))
+        min_type_coverage.append(count)
+        LOGGER.info('Vaccine will cover at least %d proteins', count)
+
+    # must pad all matrices to the same size
+    if len(type_coverage) > 1:
+        max_rows = max(a.shape[0] for a in type_coverage)
+        max_cols = max(a.shape[1] for a in type_coverage)
+
+        type_coverage = [
+            np.pad(arr, ((0, max_rows - arr.shape[0]), (0, max_cols - arr.shape[1])), 'constant', constant_values=0)
+            for arr in type_coverage
+        ]
+
+    return type_coverage, min_type_coverage
+
+
 @click.group()
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
 def main(verbose):
@@ -45,26 +82,32 @@ def main(verbose):
 @click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
 @click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
-@click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
-def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes, top_proteins, top_immunogen, top_alleles):
+@click.option('--max-aminoacids', default=0, help='Maximum length of the vaccine in aminoacids')
+@click.option('--max-epitopes', default=10, help='Maximum length of the vaccine in epitopes')
+@click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
+@click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
+def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes,
+           top_proteins, top_immunogen, top_alleles, min_alleles, min_proteins):
     program_start_time = time.time()
 
     # load epitopes
     epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
     LOGGER.info('Loaded %d epitopes', len(epitope_data))
 
-    # compute edge cost and create solver
+    # compute edge cost
     epitopes = [''] + [b['epitope'] for b in epitope_data]
     vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
     edge_cost = utilities.compute_suffix_prefix_cost(epitopes)
-    solver = TeamOrienteeringIlp(
-        num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edge_cost,
-        max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
-    )
+
+    type_coverage, min_type_coverage = compute_coverage_matrix(epitope_data, min_alleles, min_proteins)
 
     # find optimal design
     solver_build_time = time.time()
+    solver = TeamOrienteeringIlp(
+        num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edge_cost,
+        max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
+        type_coverage=type_coverage, min_type_coverage=min_type_coverage
+    )
     solver.build_model()
     solver_start_time = time.time()
     result = solver.solve()
@@ -94,7 +137,10 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
-def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, max_aminoacids, max_epitopes):
+@click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
+@click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
+def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,
+                    max_aminoacids, max_epitopes, min_alleles, min_proteins):
     program_start_time = time.time()
 
     # load epitopes
@@ -122,10 +168,13 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, m
             for ep_to in vertex_to_epitope
         ])
 
+    type_coverage, min_type_coverage = compute_coverage_matrix(epitopes, min_alleles, min_proteins)
+
     # find optimal design
     solver_build_time = time.time()
     solver = TeamOrienteeringIlp(
         num_teams=cocktail, vertex_reward=vertices_rewards, edge_cost=edge_cost,
+        type_coverage=type_coverage, min_type_coverage=min_type_coverage,
         max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
     )
     solver.build_model()

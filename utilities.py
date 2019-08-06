@@ -17,8 +17,8 @@ def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_prote
         epitope_data = {}
         for row in csv.DictReader(f):
             row['immunogen'] = float(row['immunogen'])
-            row['proteins'] = row['proteins'].split(';')
-            row['alleles'] = row['alleles'].split(';')
+            row['proteins'] = set(row['proteins'].split(';'))
+            row['alleles'] = set(row['alleles'].split(';'))
             epitope_data[row['epitope']] = row
 
     if top_immunogen is None and top_alleles is None and top_proteins is None:

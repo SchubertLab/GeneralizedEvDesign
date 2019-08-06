@@ -40,8 +40,8 @@ from pyomo.opt import SolverFactory, TerminationCondition
 
 class TeamOrienteeringIlp:
 
-    # TODO eventually should allow minimum coverage of certain subtypes
     def __init__(self, num_teams, vertex_reward, edge_cost, max_edge_cost, max_vertices,
+                 type_coverage=None, min_type_coverage=None,
                  model_type='dfj', solver='gurobi_persistent'):
 
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -57,6 +57,8 @@ class TeamOrienteeringIlp:
         self._edge_cost = edge_cost
         self._max_edge_cost = max_edge_cost
         self._max_vertices = max_vertices
+        self._type_coverage = type_coverage
+        self._min_type_coverage = min_type_coverage
 
     def build_model(self):
         self.logger.info('Building model...')
@@ -142,6 +144,39 @@ class TeamOrienteeringIlp:
             )
         else:
             self.logger.info('No maximum vertex count enforced.')
+
+        if self._type_coverage and self._min_type_coverage:
+            # type_coverage is a binary tensor s.t. C_ijk = 1 iff vertex j covers option k of type i
+            # min_type_coverage is a vector s.t. c_i is the minimum options of type i that the vaccine must cover
+            self._model.Types = aml.RangeSet(0, len(self._type_coverage) - 1)
+            self._model.Options = aml.RangeSet(0, len(self._type_coverage[0][0]) - 1)
+            self._model.TypeCoverage = aml.Param(self._model.Types * self._model.Nodes * self._model.Options,
+                                                 initialize=lambda model, t, n, o: self._type_coverage[t][n][o])
+
+            # indicator variable 1 iff at least one team visits at least one vertex of option i of type j
+            self._model.OptionCovered = aml.Var(self._model.Types * self._model.Options, domain=aml.Binary, initialize=0)
+            self._model.OptionCoveredConstraint = aml.Constraint(
+                self._model.Types * self._model.Options,
+                rule = lambda model, typ, option: sum(
+                    model.y[n, t] * model.TypeCoverage[typ, n, option]
+                    for n in model.Nodes for t in model.Teams
+                ) >= model.OptionCovered[typ, option]
+            )
+
+            # sum of above indicator variables must be at least the minimum option coverage for each type
+            self._model.MinOptionCoverage = aml.Param(
+                self._model.Types, initialize=lambda model, typ: self._min_type_coverage[typ]
+            )
+            self._model.MinOptionCoverageConstraint = aml.Constraint(
+                self._model.Types,
+                rule=lambda model, typ: sum(
+                    model.OptionCovered[typ, o] for o in model.Options
+                ) >= model.MinOptionCoverage[typ]
+            )
+            self.logger.info('Enforcing minimum coverage with %d types and %d options per type',
+                             len(self._type_coverage), len(self._type_coverage[0][0]))
+        else:
+            self.logger.info('No type coverage enforced')
 
         self.logger.info('Model build!')
         return self

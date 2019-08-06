@@ -51,7 +51,8 @@ class TeamOrienteeringIlp:
 
         self._model = None
         self._result = None
-        self._solver = SolverFactory(solver)
+        self._solver = None
+        self._solver_type = solver
         self._vertex_reward = vertex_reward
         self._num_teams = num_teams
         self._edge_cost = edge_cost
@@ -59,6 +60,8 @@ class TeamOrienteeringIlp:
         self._max_vertices = max_vertices
         self._type_coverage = type_coverage
         self._min_type_coverage = min_type_coverage
+        self._team_max_vertices_constraints = []
+        self._team_max_edge_cost_constraints = []
 
     def build_model(self):
         self.logger.info('Building model...')
@@ -66,9 +69,9 @@ class TeamOrienteeringIlp:
         self._model = aml.ConcreteModel()
 
         # model parameters
-        self._model.TeamCount = aml.Param(initialize=self._num_teams)
-        self._model.MaxEdgeCost = aml.Param(initialize=self._max_edge_cost)
-        self._model.MaxVertexCount = aml.Param(initialize=self._max_vertices)
+        self._model.TeamCount = aml.Param(initialize=self._num_teams, mutable=True)
+        self._model.MaxEdgeCost = aml.Param(initialize=self._max_edge_cost, mutable=True)
+        self._model.MaxVertexCount = aml.Param(initialize=self._max_vertices, mutable=True)
 
         # graph objects
         self._model.Teams = aml.RangeSet(0, self._num_teams - 1)
@@ -126,24 +129,9 @@ class TeamOrienteeringIlp:
         )
 
         # each path must not exceed the specified edge cost
-        if self._max_edge_cost > 0:
-            self.logger.info('Maximum edge cost for each tour is %f', self._max_edge_cost)
-            self._model.MaxPathEdgeCost = aml.Constraint(
-                self._model.Teams,
-                rule=lambda model, team: sum(model.x[u, v, team] * model.d[u, v] for (u, v) in model.Edges) <= model.MaxEdgeCost
-            )
-        else:
-            self.logger.info('No maximum edge cost enforced.')
-
         # each path must not pass through more vertices than specified
-        if self._max_vertices > 0:
-            self.logger.info('Maximum vertex count for each tour is %d', self._max_vertices)
-            self._model.MaxPathVertices = aml.Constraint(
-                self._model.Teams,
-                rule=lambda model, team: sum(model.y[n, team] for n in model.Nodes if n != 0) <= model.MaxVertexCount
-            )
-        else:
-            self.logger.info('No maximum vertex count enforced.')
+        self.update_max_vertices(self._max_vertices)
+        self.update_max_edge_cost(self._max_edge_cost)
 
         if self._type_coverage and self._min_type_coverage:
             # type_coverage is a binary tensor s.t. C_ijk = 1 iff vertex j covers option k of type i
@@ -178,9 +166,75 @@ class TeamOrienteeringIlp:
         else:
             self.logger.info('No type coverage enforced')
 
+        self._solver = SolverFactory(self._solver_type)
+        self._solver.set_instance(self._model)
         self.logger.info('Model build!')
         return self
+    
+    def update_max_vertices(self, max_vertices):
+        def get_constraint(team):
+            if max_vertices > 0:
+                return pmo.constraint(expr=sum(
+                    self._model.y[n, team] for n in self._model.Nodes if n != team
+                ) <= self._model.MaxVertexCount)
+            else:
+                return None
 
+        self._max_vertices = max_vertices
+        self._model.MaxVertexCount.set_value(max_vertices)
+        self._team_max_vertices_constraints = self._update_constraint_for_all_teams(
+            self._team_max_vertices_constraints, get_constraint, 'MaxVerticesForTeam%d'
+        )
+
+        if max_vertices < 0:
+            self.logger.info('No maximum vertex count enforced.')
+        else:
+            self.logger.info('Maximum vertex count for each tour is %d', self._max_vertices)
+    
+    def update_max_edge_cost(self, max_edge_cost):
+        def get_constraint(team):
+            if max_edge_cost > 0:
+                return pmo.constraint(expr=sum(
+                    self._model.x[u, v, team] * self._model.d[u, v] for (u, v) in self._model.Edges
+                ) <= self._model.MaxEdgeCost)
+            else:
+                return None
+
+        self._max_edge_cost = max_edge_cost
+        self._model.MaxEdgeCost.set_value(max_edge_cost)
+        self._team_max_edge_cost_constraints = self._update_constraint_for_all_teams(
+            self._team_max_edge_cost_constraints, get_constraint, 'MaxEdgeCostForTeam%d'
+        )
+
+        if max_edge_cost < 0:
+            self.logger.info('Maximum edge cost for each tour is %f', self._max_edge_cost)
+        else:
+            self.logger.info('No maximum edge cost enforced.')
+    
+    def _update_constraint_for_all_teams(self, current_constraints, constraint_fn, name_fmt):
+        for name in current_constraints:
+            constr = getattr(self._model, name)
+            try:
+                self._solver.remove_constraint(constr)
+            except KeyError:
+                # happens after model is built, but not solved. not sure why
+                pass
+
+            setattr(self._model, name, None)
+            del constr
+
+        new_constraints = []
+        for team in range(self._num_teams):
+            name = name_fmt % team
+            constr = constraint_fn(team)
+            if constr is None:
+                continue
+            setattr(self._model, name, constr)
+            new_constraints.append(name)
+            if self._solver is not None:
+                self._solver.add_constraint(constr)
+        return new_constraints
+    
     def solve(self, options=None):
         # if logging is configured, gurobipy will print messages there *and* on stdout
         # so we silence its logger and redirect all stdout to our own logger
@@ -219,7 +273,6 @@ class TeamOrienteeringIlp:
         self.logger.info('Solving started')
         if self._model is None:
             raise RuntimeError('must call build_model before solve')
-        self._solver.set_instance(self._model)
         self._subtour_constraints = 0
 
         while True:

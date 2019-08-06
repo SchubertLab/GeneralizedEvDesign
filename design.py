@@ -82,14 +82,12 @@ def main(verbose):
 @click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
 @click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
-@click.option('--max-aminoacids', default=0, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', default=10, help='Maximum length of the vaccine in epitopes')
+@click.option('--max-aminoacids', '-a', default=[0], multiple=True, help='Maximum length of the vaccine in aminoacids')
+@click.option('--max-epitopes', '-e', default=[10], multiple=True, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
 def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes,
            top_proteins, top_immunogen, top_alleles, min_alleles, min_proteins):
-    program_start_time = time.time()
-
     # load epitopes
     epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
     LOGGER.info('Loaded %d epitopes', len(epitope_data))
@@ -102,32 +100,36 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
     type_coverage, min_type_coverage = compute_coverage_matrix(epitope_data, min_alleles, min_proteins)
 
     # find optimal design
-    solver_build_time = time.time()
     solver = TeamOrienteeringIlp(
         num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edge_cost,
-        max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
+        max_edge_cost=0, max_vertices=3,
         type_coverage=type_coverage, min_type_coverage=min_type_coverage
     )
     solver.build_model()
-    solver_start_time = time.time()
-    result = solver.solve()
-    solver_end_time = time.time()
 
-    # print info and save
-    with open(output_vaccine, 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(('cocktail', 'index', 'epitope'))
-        for i, mosaic in enumerate(result):
-            LOGGER.info('Mosaic #%d', i + 1)
-            for j, (_, vertex) in enumerate(mosaic[:-1]):
-                writer.writerow((i, j, epitope_data[vertex - 1]['epitope']))
-                LOGGER.info('    %s - IG: %.2f', epitope_data[vertex - 1]['epitope'], epitope_data[vertex - 1]['immunogen'])
+    for ep in sorted(map(int, max_epitopes)):
+        for am in sorted(map(int, max_aminoacids)):
+            LOGGER.info('Solving with at most %d epitopes and most %d aminoacids', ep, am)
+            solver.update_max_vertices(ep)
+            solver.update_max_edge_cost(am)
 
-    LOGGER.info('==== Stopwatch')
-    LOGGER.info('          Total time : %.2f s', solver_end_time - program_start_time)
-    LOGGER.info('      Pre-processing : %.2f s', solver_build_time - program_start_time)
-    LOGGER.info(' Model creation time : %.2f s', solver_start_time - solver_build_time)
-    LOGGER.info('        Solving time : %.2f s', solver_end_time - solver_start_time)
+            result = solver.solve()
+
+            # print info and save
+            fname = output_vaccine.format(a=am, e=ep)
+            LOGGER.info('Saving result to %s', fname)
+            with open(fname, 'w') as f:
+                writer = csv.writer(f)
+                writer.writerow(('cocktail', 'index', 'epitope'))
+                for i, mosaic in enumerate(result):
+                    LOGGER.info('Mosaic #%d', i + 1)
+                    for j, (_, vertex) in enumerate(mosaic[:-1]):
+                        writer.writerow((i, j, epitope_data[vertex - 1]['epitope']))
+                        LOGGER.info(
+                            '    %s - IG: %.2f',
+                            epitope_data[vertex - 1]['epitope'],
+                            epitope_data[vertex - 1]['immunogen']
+                        )
 
 
 @main.command()
@@ -135,8 +137,8 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
 @click.argument('input-cleavages', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
-@click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
+@click.option('--max-aminoacids', '-a', default=0, multiple=True, help='Maximum length of the vaccine in aminoacids')
+@click.option('--max-epitopes', '-e', default=10, multiple=True, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
 def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,
@@ -205,7 +207,9 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,
 @click.argument('input-alleles', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
 @click.option('--epitopes', '-e', default=10, help='Number of epitopes to include in the vaccine')
-def optitope(input_affinities, input_alleles, output_vaccine, epitopes):
+@click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
+@click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
+def optitope(input_affinities, input_alleles, output_vaccine, epitopes, min_alleles, min_proteins):
     allele_data = utilities.get_alleles_and_thresholds(input_alleles).to_dict('index')
     thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.iteritems()}
     LOGGER.info('Loaded %d alleles', len(thresholds))
@@ -215,6 +219,12 @@ def optitope(input_affinities, input_alleles, output_vaccine, epitopes):
 
     LOGGER.info("Creating vaccine...")
     model = OptiTope(affinities, thresholds, k=epitopes, solver='gurobi')
+    if min_alleles > 0:
+        model.activate_allele_coverage_const(min_alleles)
+        LOGGER.info('Vaccine will cover at least %f alleles', min_alleles)
+    if min_proteins > 0:
+        model.activate_antigen_coverage_const(min_proteins)
+        LOGGER.info('Vaccine will cover at least %f proteins', min_proteins)
     vaccine = model.solve()
 
     LOGGER.info('Vaccine summary:')

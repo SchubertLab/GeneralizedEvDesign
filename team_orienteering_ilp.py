@@ -42,7 +42,7 @@ class TeamOrienteeringIlp:
 
     def __init__(self, num_teams, vertex_reward, edge_cost, max_edge_cost, max_vertices,
                  type_coverage=None, min_type_coverage=None, lazy_subtour_elimination=False,
-                 model_type='dfj', solver='gurobi_persistent'):
+                 solver='gurobi_persistent'):
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -93,7 +93,7 @@ class TeamOrienteeringIlp:
         self._model.y = aml.Var(self._model.Nodes * self._model.Teams, domain=aml.Binary, initialize=0)
 
         # objective of the model: maximize reward collected from visited nodes
-        self._model.Obj = aml.Objective(
+        self._model.Objective = aml.Objective(
             rule=lambda model: sum(model.y[n, t] * model.r[n] for n in model.Nodes for t in model.Teams),
             sense=aml.maximize
         )
@@ -129,6 +129,7 @@ class TeamOrienteeringIlp:
             ) == model.y[node, team]
         )
 
+        # subtour elimination, if required
         if not self._lazy_subtour_elimination:
             self._model.u = aml.Var(self._model.Nodes * self._model.Teams, bounds=(1.0, len(self._vertex_reward) - 1))
             self._model.SubTour = aml.Constraint((
@@ -142,11 +143,6 @@ class TeamOrienteeringIlp:
                 model.u[i, t] - model.u[j, t] + (len(self._vertex_reward) - 1) * model.x[i, j, t],
                 len(self._vertex_reward) - 2
             ))
-
-        # each path must not exceed the specified edge cost
-        # each path must not pass through more vertices than specified
-        self.update_max_vertices(self._max_vertices)
-        self.update_max_edge_cost(self._max_edge_cost)
 
         if self._type_coverage and self._min_type_coverage:
             # type_coverage is a binary tensor s.t. C_ijk = 1 iff vertex j covers option k of type i
@@ -183,6 +179,10 @@ class TeamOrienteeringIlp:
 
         self._solver = SolverFactory(self._solver_type)
         self._solver.set_instance(self._model)
+
+        self.update_max_vertices(self._max_vertices)
+        self.update_max_edge_cost(self._max_edge_cost)
+
         self.logger.info('Model build!')
         return self
     
@@ -190,7 +190,7 @@ class TeamOrienteeringIlp:
         def get_constraint(team):
             if max_vertices > 0:
                 return pmo.constraint(expr=sum(
-                    self._model.y[n, team] for n in self._model.Nodes if n != team
+                    self._model.y[n, team] for n in self._model.Nodes if n != 0
                 ) <= self._model.MaxVertexCount)
             else:
                 return None
@@ -246,8 +246,7 @@ class TeamOrienteeringIlp:
                 continue
             setattr(self._model, name, constr)
             new_constraints.append(name)
-            if self._solver is not None:
-                self._solver.add_constraint(constr)
+            self._solver.add_constraint(constr)
         return new_constraints
     
     def solve(self, options=None):
@@ -384,6 +383,83 @@ class TeamOrienteeringIlp:
                 cursor = arcs[cursor]
             tours.append(tour)
         return tours
+    
+    def explore_edge_cost_vertex_reward_tradeoff(self, steps):
+        # introduce variables for vertex reward and edge cost
+        self._model.VertexReward = aml.Var()
+        self._model.AssignVertexReward = pmo.constraint(expr=sum(
+            self._model.y[n, t] * self._model.r[n] for n in self._model.Nodes for t in self._model.Teams
+        ) == self._model.VertexReward)
+
+        self._model.EdgeCost = aml.Var()
+        self._model.AssignEdgeCost = aml.Constraint(expr=sum(
+            self._model.x[u, v, t] * self._model.d[u, v] for (u, v) in self._model.Edges for t in self._model.Teams
+        ) == self._model.EdgeCost)
+
+        self._solver.add_var(self._model.VertexReward)
+        self._solver.add_constraint(self._model.AssignVertexReward)
+        self._solver.add_var(self._model.EdgeCost)
+        self._solver.add_constraint(self._model.AssignEdgeCost)
+
+        # step 1: obtain maximum vertex reward
+        self.logger.info('Obtaining maximum vertex reward...')
+        del self._model.Objective
+        self._model.Objective = aml.Objective(expr=self._model.VertexReward, sense=aml.maximize)
+        self._solver.set_objective(self._model.Objective)
+        self.solve()
+        max_reward = aml.value(self._model.VertexReward)
+        self.logger.info('Maximum reward is %f with cost %f', max_reward, aml.value(self._model.EdgeCost))
+
+        # step 2: obtain minimum edge cost
+        self.logger.info('Obtaining minumum edge cost...')
+        del self._model.Objective
+        self._model.Objective = aml.Objective(expr=self._model.EdgeCost, sense=aml.minimize)
+        self._solver.set_objective(self._model.Objective)
+        self.solve()
+        max_cost = aml.value(self._model.EdgeCost)
+        self.logger.info('Minimum cost is %f with reward %f', max_cost, aml.value(self._model.VertexReward))
+
+        # step 3: obtain minumum edge cost, conditioned on maximum vertex reward
+        self.logger.info('Obtaining minimum cost conditioned on maximum reward...')
+        self._model.ForcedReward = aml.Param(initialize=max_reward)
+        self._model.MaxVertexReward = pmo.constraint(expr=self._model.VertexReward == self._model.ForcedReward)
+        self._solver.add_constraint(self._model.MaxVertexReward)
+        self.solve()
+        max_cost_max_reward = aml.value(self._model.EdgeCost)
+        self.logger.info('Cost is %f with reward %f', max_cost_max_reward, aml.value(self._model.VertexReward))
+
+        # step 4: iterate between these two values
+        self._solver.remove_constraint(self._model.MaxVertexReward)
+        del self._model.MaxVertexReward
+        del self._model.ForcedReward
+        self._model.EdgeCostSlackValue = aml.Param(initialize=0.0, mutable=True)
+        self._model.EdgeCostSlack = aml.Var(within=aml.NonNegativeReals)
+        self._model.Epsilon = aml.Param(initialize=1e-4)
+        del self._model.Objective
+        self._model.Objective = aml.Objective(
+            rule=lambda model: model.VertexReward + model.Epsilon * model.EdgeCostSlack,
+            sense=aml.maximize
+        )
+        self._solver.add_var(self._model.EdgeCostSlack)
+        self._solver.set_objective(self._model.Objective)
+
+        for i in range(steps):
+            value = max_cost_max_reward + i * (max_cost - max_cost_max_reward) / float(steps - 1)
+            self.logger.info('======')
+            self.logger.info('Iteration %d - Cost bound is %f', i + 1, value)
+            self._model.EdgeCostSlackValue.set_value(value)
+            self._model.EdgeCostConstr = pmo.constraint(
+                expr=self._model.EdgeCost + self._model.EdgeCostSlack == self._model.EdgeCostSlackValue
+            )
+            self._solver.add_constraint(self._model.EdgeCostConstr)
+
+            self.solve()
+            reward, cost = aml.value(self._model.VertexReward), aml.value(self._model.EdgeCost)
+            self.logger.info('Obtained reward %f with cost %f', reward, cost)
+            yield (reward, cost)
+
+            self._solver.remove_constraint(self._model.EdgeCostConstr)
+            del self._model.EdgeCostConstr
 
 
 def test():

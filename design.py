@@ -140,8 +140,8 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
 @click.argument('input-cleavages', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
-@click.option('--max-aminoacids', '-a', default=0, multiple=True, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', '-e', default=10, multiple=True, help='Maximum length of the vaccine in epitopes')
+@click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
+@click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
 def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,

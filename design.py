@@ -102,7 +102,7 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
     # find optimal design
     solver = TeamOrienteeringIlp(
         num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edge_cost,
-        max_edge_cost=0, max_vertices=3,
+        max_edge_cost=0, max_vertices=0,
         type_coverage=type_coverage, min_type_coverage=min_type_coverage
     )
     solver.build_model()
@@ -118,6 +118,7 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
             # print info and save
             fname = output_vaccine.format(a=am, e=ep)
             LOGGER.info('Saving result to %s', fname)
+            total_ig = 0.0
             with open(fname, 'w') as f:
                 writer = csv.writer(f)
                 writer.writerow(('cocktail', 'index', 'epitope'))
@@ -125,11 +126,13 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
                     LOGGER.info('Mosaic #%d', i + 1)
                     for j, (_, vertex) in enumerate(mosaic[:-1]):
                         writer.writerow((i, j, epitope_data[vertex - 1]['epitope']))
+                        total_ig += epitope_data[vertex - 1]['immunogen']
                         LOGGER.info(
                             '    %s - IG: %.2f',
                             epitope_data[vertex - 1]['epitope'],
                             epitope_data[vertex - 1]['immunogen']
                         )
+                LOGGER.info('Total immunogenicity: %.3f', total_ig)
 
 
 @main.command()

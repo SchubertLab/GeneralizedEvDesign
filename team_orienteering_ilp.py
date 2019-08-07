@@ -41,7 +41,7 @@ from pyomo.opt import SolverFactory, TerminationCondition
 class TeamOrienteeringIlp:
 
     def __init__(self, num_teams, vertex_reward, edge_cost, max_edge_cost, max_vertices,
-                 type_coverage=None, min_type_coverage=None,
+                 type_coverage=None, min_type_coverage=None, lazy_subtour_elimination=False,
                  model_type='dfj', solver='gurobi_persistent'):
 
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -52,6 +52,9 @@ class TeamOrienteeringIlp:
         self._model = None
         self._result = None
         self._solver = None
+        self._team_max_vertices_constraints = []
+        self._team_max_edge_cost_constraints = []
+        self._lazy_subtour_elimination = lazy_subtour_elimination
         self._solver_type = solver
         self._vertex_reward = vertex_reward
         self._num_teams = num_teams
@@ -60,8 +63,6 @@ class TeamOrienteeringIlp:
         self._max_vertices = max_vertices
         self._type_coverage = type_coverage
         self._min_type_coverage = min_type_coverage
-        self._team_max_vertices_constraints = []
-        self._team_max_edge_cost_constraints = []
 
     def build_model(self):
         self.logger.info('Building model...')
@@ -127,6 +128,20 @@ class TeamOrienteeringIlp:
                 model.x[v, node, team] for v in model.Nodes if v != node
             ) == model.y[node, team]
         )
+
+        if not self._lazy_subtour_elimination:
+            self._model.u = aml.Var(self._model.Nodes * self._model.Teams, bounds=(1.0, len(self._vertex_reward) - 1))
+            self._model.SubTour = aml.Constraint((
+                (i, j, t)
+                for i in xrange(1, len(self._vertex_reward))
+                for j in xrange(1, len(self._vertex_reward))
+                for t in xrange(self._num_teams)
+                if i != j
+            ), rule=lambda model, i, j, t: (
+                None,
+                model.u[i, t] - model.u[j, t] + (len(self._vertex_reward) - 1) * model.x[i, j, t],
+                len(self._vertex_reward) - 2
+            ))
 
         # each path must not exceed the specified edge cost
         # each path must not pass through more vertices than specified
@@ -206,11 +221,11 @@ class TeamOrienteeringIlp:
             self._team_max_edge_cost_constraints, get_constraint, 'MaxEdgeCostForTeam%d'
         )
 
-        if max_edge_cost < 0:
+        if max_edge_cost > 0:
             self.logger.info('Maximum edge cost for each tour is %f', self._max_edge_cost)
         else:
             self.logger.info('No maximum edge cost enforced.')
-    
+
     def _update_constraint_for_all_teams(self, current_constraints, constraint_fn, name_fmt):
         for name in current_constraints:
             constr = getattr(self._model, name)
@@ -293,6 +308,7 @@ class TeamOrienteeringIlp:
                     self.logger.debug('   %s', tt)
 
                 if len(this_tour_edges) > 1 or not any(u == 0 for u, v in this_tour_edges[0]):
+                    assert self._lazy_subtour_elimination, 'subtour elimination failed'
                     valid_solution = False
                     self._eliminate_subtours_dfj(this_tour_edges)
                     self.logger.debug('Subtour elimination constraints updated (%d inserted so far)' % (

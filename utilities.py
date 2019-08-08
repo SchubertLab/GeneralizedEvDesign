@@ -18,7 +18,6 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins):
         ]))
         count = int(min_alleles) if min_alleles > 1 else int(min_alleles * len(alleles))
         min_type_coverage.append(count)
-        LOGGER.info('Vaccine will cover at least %d alleles', count)
 
     # compute protein coverage matrix
     if min_proteins:
@@ -30,7 +29,6 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins):
         # FIXME here we assume that the set of epitopes cover all proteins
         count = int(min_proteins) if min_proteins > 1 else int(min_proteins * len(proteins))
         min_type_coverage.append(count)
-        LOGGER.info('Vaccine will cover at least %d proteins', count)
 
     # must pad all matrices to the same size
     if len(type_coverage) > 1:
@@ -59,7 +57,7 @@ def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_prote
             row['alleles'] = set(row['alleles'].split(';'))
             epitope_data[row['epitope']] = row
 
-    if top_immunogen is None and top_alleles is None and top_proteins is None:
+    if top_immunogen <= 0 and top_alleles <= 0 and top_proteins <= 0:
         return epitope_data
 
     def filter_epitopes(epitopes, top_count, top_key):
@@ -69,11 +67,11 @@ def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_prote
         return set(best[:count])
 
     top_epitopes = set()
-    if top_immunogen:
+    if top_immunogen > 0:
         top_epitopes.update(filter_epitopes(epitope_data, top_immunogen, lambda e: e['immunogen']))
-    if top_alleles:
+    if top_alleles > 0:
         top_epitopes.update(filter_epitopes(epitope_data, top_alleles, lambda e: len(e['alleles'])))
-    if top_proteins:
+    if top_proteins > 0:
         top_epitopes.update(filter_epitopes(epitope_data, top_proteins, lambda e: len(e['proteins'])))
     
     return {e: epitope_data[e] for e in top_epitopes}
@@ -117,7 +115,7 @@ def affinities_from_csv(bindings_file, allele_data=None, peptide_coverage=None, 
     return EpitopePredictionResult(df)
 
 
-def init_logging(verbose):
+def init_logging(verbose, log_file, log_append=False):
     level = (logging.DEBUG) if verbose else logging.INFO
 
     logger = logging.getLogger()
@@ -128,12 +126,13 @@ def init_logging(verbose):
     sh.setLevel(level)
     sh.setFormatter(fmt)
 
-    fh = logging.FileHandler('dev/last-run.log', 'w')
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
+    if log_file:
+        fh = logging.FileHandler(log_file, 'a' if log_append else 'w')
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
 
     logger.addHandler(sh)
-    logger.addHandler(fh)
 
     return logger
 

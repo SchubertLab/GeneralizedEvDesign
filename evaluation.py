@@ -34,10 +34,11 @@ LOGGER = None
 
 
 @click.group()
-@click.option('--verbose', '-v', is_flag=True, help='Print debug messages')
-def main(verbose):
+@click.option('--verbose', '-v', is_flag=True, help='Print debug messages on the console')
+@click.option('--log-file', '-l', type=click.Path(), help='Where to store the logs')
+def main(verbose, log_file):
     global LOGGER
-    LOGGER = utilities.init_logging(verbose)
+    LOGGER = utilities.init_logging(verbose, log_file, log_append=False)
 
 
 @main.command()

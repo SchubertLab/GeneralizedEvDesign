@@ -169,18 +169,28 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,
 
 
 @main.command()
+@click.argument('input-peptides', type=click.Path())
 @click.argument('input-affinities', type=click.Path())
 @click.argument('input-alleles', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
 @click.option('--epitopes', '-e', default=10, help='Number of epitopes to include in the vaccine')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
-def optitope(input_affinities, input_alleles, output_vaccine, epitopes, min_alleles, min_proteins):
+def optitope(input_affinities, input_peptides, input_alleles, output_vaccine, epitopes, min_alleles, min_proteins):
+    with open(input_peptides) as f:
+        reader = csv.DictReader(f)
+        peptides = {
+            # we don't really need the actual protein sequence, just fill it with the id to make it unique
+            Peptide(r['peptide']): set(Protein(gid, gene_id=gid) for gid in r['proteins'].split(';'))
+            for r in reader
+        }
+    LOGGER.info('Loaded %d peptides', len(peptides))
+
     allele_data = utilities.get_alleles_and_thresholds(input_alleles).to_dict('index')
     thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.iteritems()}
     LOGGER.info('Loaded %d alleles', len(thresholds))
 
-    affinities = utilities.affinities_from_csv(input_affinities, allele_data)
+    affinities = utilities.affinities_from_csv(input_affinities, allele_data, peptide_coverage=peptides)
     LOGGER.info('Loaded %d affinities', len(affinities))
 
     LOGGER.info("Creating vaccine...")

@@ -27,6 +27,7 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins):
             [int(p in e['proteins']) for p in proteins]
             for e in epitope_data
         ]))
+        # FIXME here we assume that the set of epitopes cover all proteins
         count = int(min_proteins) if min_proteins > 1 else int(min_proteins * len(proteins))
         min_type_coverage.append(count)
         LOGGER.info('Vaccine will cover at least %d proteins', count)

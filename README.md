@@ -188,7 +188,7 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python design.py -v optitope dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-optitope.csv
+   python design.py -v optitope dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-optitope.csv
    ```
 
 - PopCover: based on [3]

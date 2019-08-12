@@ -5,7 +5,7 @@ BASEDIR="experiments/advantage"
 
 mkdir -p "$BASEDIR/results"
 if [ ! -f "$BASEDIR/results/made-proteins.fasta" ]; then
-    python data_preparation.py -v random-sequences "experiments/resources/hiv1-bc-env.fasta" 300 "$BASEDIR/made-proteins.fasta"
+    python data_preparation.py -v random-sequences "experiments/resources/hiv1-bc-env.fasta" 300 "$BASEDIR/results/made-proteins.fasta"
 else
     echo "Not overwriting proteins!"
 fi;
@@ -24,9 +24,9 @@ do
         MOSAIC_VACCINE_NAME="made-mosaic-a$aminoacids.csv" \
         MOSAIC_LOG_NAME="made-mosaic-a$aminoacids.log" \
         MOSAIC_EVAL_NAME="made-mosaic-a$aminoacids-eval.csv" \
-        MOSAIC_OPTS="--top-immunogen 1000 --top-proteins -1 --top-alleles -1 --max-epitopes -1 --max-aminoacids $aminoacids --min-alleles 0 --min-proteins 0 --cocktail 1"
+        MOSAIC_OPTS="--top-immunogen 1000 --top-proteins -1 --top-alleles -1 --max-epitopes -1 --max-aminoacids $aminoacids --min-alleles 0 --min-proteins 0 --cocktail 1" \
         OPTITOPE_VACCINE_NAME="made-optitope-a$aminoacids.csv" \
-        OPTITOPE_LOG_NAME="made-optitope-a$aminoacids.csv" \
+        OPTITOPE_LOG_NAME="made-optitope-a$aminoacids.log" \
         OPTITOPE_EVAL_NAME="made-optitope-a$aminoacids-eval.csv" \
         OPTITOPE_OPTS="--epitopes $epitopes --min-alleles 0 --min-proteins 0" \
         COVERAGE_OPTS="--max-edits 0 --top-n -1"

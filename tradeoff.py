@@ -41,20 +41,22 @@ LOGGER = None
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('input-cleavages', type=click.Path())
 @click.argument('output-frontier', type=click.Path())
+@click.option('--verbose', '-v', is_flag=True, help='print debug messages on the console')
+@click.option('--log-file', '-l', type=click.Path(), help='where to store the logs')
 @click.option('--pareto-steps', '-s', default=10, help='How many points to discover on the pareto frontier')
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
-def main(input_epitopes, input_cleavages, output_frontier, cocktail, pareto_steps,
+def main(input_epitopes, input_cleavages, output_frontier, cocktail, pareto_steps, verbose, log_file,
          max_aminoacids, max_epitopes, min_alleles, min_proteins):
     ''' Explore the trade-off between the immunogenicity and the cleavage likelihood for string-of-beads vaccines.
         Outputs the Pareto frontier of the two objectives.
     '''
 
     global LOGGER
-    LOGGER = utilities.init_logging(verbose=False)
+    LOGGER = utilities.init_logging(verbose=verbose, log_file=log_file)
 
     # load epitopes
     epitopes = utilities.load_epitopes(input_epitopes)

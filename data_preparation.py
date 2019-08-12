@@ -246,7 +246,7 @@ def compute_affinities(input_alleles, input_peptides, output_affinities, process
 
     try:
         tasks = []
-        for batch in iterbatches((p for p, _ in peptides), bsize=2048):
+        for batch in iterbatches((p for p, _ in peptides), bsize=512):
             tasks.append(pool.apply_async(get_binding_affinity_process, (batch, alleles)))
         
         count = 0

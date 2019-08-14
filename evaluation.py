@@ -206,11 +206,15 @@ def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summa
     res_df.to_csv(output_aggregate, index=False)
     LOGGER.info('Saved raw results to %s', output_aggregate)
 
-    if summary_by:
+    if path_format:
         LOGGER.info('Summary of the results, grouped by %s', ', '.join(summary_by))
-        summary = res_df.groupby(list(summary_by)).apply(lambda g: g.describe().T)
-        # bring the columns at the outermost level to facilitate comparing the same metric among different evaluations
-        summary.index = summary.index.reorder_levels([len(summary_by)] + range(len(summary_by)))
+        if summary_by:
+            summary = res_df.groupby(list(summary_by)).apply(lambda g: g.describe().T)
+            # bring the columns at the outermost level to facilitate comparing the same metric among different evaluations
+            summary.index = summary.index.reorder_levels([len(summary_by)] + range(len(summary_by)))
+        else:
+            summary = res_df.describe().T
+
         summary.sort_index(inplace=True)
         for row in summary.to_string().split('\n'):
             LOGGER.info(row)

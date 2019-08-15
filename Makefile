@@ -37,47 +37,51 @@ CLEAVAGES				?= $(BASE_DIR)/$(CLEAVAGES_NAME)
 CLEAVAGES_LOG			?= $(BASE_DIR)/$(CLEAVAGES_LOG_NAME)
 CLEAVAGES_OPTS			?= 
 
-MOSAIC_VACCINE_NAME		?= made-mosaic-vaccine.csv
-MOSAIC_LOG_NAME			?= made-mosaic-vaccine.log
+MOSAIC_NAME				?= made-mosaic-vaccine
+MOSAIC_VACCINE_NAME		?= $(MOSAIC_NAME).csv
+MOSAIC_LOG_NAME			?= $(MOSAIC_NAME).log
 MOSAIC_VACCINE			?= $(BASE_DIR)/$(MOSAIC_VACCINE_NAME)
 MOSAIC_LOG				?= $(BASE_DIR)/$(MOSAIC_LOG_NAME)
 MOSAIC_OPTS				?= 
 
-MOSAIC_EVAL_NAME		?= made-mosaic-evaluation.csv
-MOSAIC_EVAL_LOG_NAME	?= made-mosaic-evaluation.log
+MOSAIC_EVAL_NAME		?= $(MOSAIC_NAME)-evaluation.csv
+MOSAIC_EVAL_LOG_NAME	?= $(MOSAIC_NAME)-evaluation.log
 MOSAIC_EVAL				?= $(BASE_DIR)/$(MOSAIC_EVAL_NAME)
 MOSAIC_EVAL_LOG			?= $(BASE_DIR)/$(MOSAIC_EVAL_LOG_NAME)
 
-STROBE_VACCINE_NAME 	?= made-string-of-beads-vaccine.csv
-STROBE_LOG_NAME 		?= made-string-of-beads-vaccine.log
+STROBE_NAME				?= made-string-of-beads-vaccine
+STROBE_VACCINE_NAME 	?= $(STROBE_NAME).csv
+STROBE_LOG_NAME 		?= $(STROBE_NAME).log
 STROBE_VACCINE			?= $(BASE_DIR)/$(STROBE_VACCINE_NAME)
 STROBE_LOG				?= $(BASE_DIR)/$(STROBE_LOG_NAME)
 STROBE_OPTS				?= 
 
-STROBE_EVAL_NAME		?= made-string-of-beads-evaluation.csv
-STROBE_EVAL_LOG_NAME	?= made-string-of-beads-evaluation.log
+STROBE_EVAL_NAME		?= $(STROBE_NAME)-evaluation.csv
+STROBE_EVAL_LOG_NAME	?= $(STROBE_NAME)-evaluation.log
 STROBE_EVAL				?= $(BASE_DIR)/$(STROBE_EVAL_NAME)
 STROBE_EVAL_LOG			?= $(BASE_DIR)/$(STROBE_EVAL_LOG_NAME)
 
-POPCOVER_VACCINE_NAME	?= made-popcover-vaccine.csv
-POPCOVER_LOG_NAME		?= made-popcover-vaccine.log
+POPCOVER_NAME			?= made-popcover-vaccine
+POPCOVER_VACCINE_NAME	?= $(POPCOVER_NAME).csv
+POPCOVER_LOG_NAME		?= $(POPCOVER_NAME).log
 POPCOVER_VACCINE		?= $(BASE_DIR)/$(POPCOVER_VACCINE_NAME)
 POPCOVER_LOG			?= $(BASE_DIR)/$(POPCOVER_LOG_NAME)
 POPCOVER_OPTS			?= 
 
-POPCOVER_EVAL_NAME		?= made-popcover-evaluation.csv
-POPCOVER_EVAL_LOG_NAME	?= made-popcover-evaluation.log
+POPCOVER_EVAL_NAME		?= $(POPCOVER_NAME)-evaluation.csv
+POPCOVER_EVAL_LOG_NAME	?= $(POPCOVER_NAME)-evaluation.log
 POPCOVER_EVAL			?= $(BASE_DIR)/$(POPCOVER_EVAL_NAME)
 POPCOVER_EVAL_LOG		?= $(BASE_DIR)/$(POPCOVER_EVAL_LOG_NAME)
 
-OPTITOPE_VACCINE_NAME	?= made-optitope-vaccine.csv
-OPTITOPE_LOG_NAME		?= made-optitope-vaccine.log
+OPTITOPE_NAME			?= made-optitope-vaccine
+OPTITOPE_VACCINE_NAME	?= $(OPTITOPE_NAME).csv
+OPTITOPE_LOG_NAME		?= $(OPTITOPE_NAME).log
 OPTITOPE_VACCINE		?= $(BASE_DIR)/$(OPTITOPE_VACCINE_NAME)
 OPTITOPE_LOG			?= $(BASE_DIR)/$(OPTITOPE_LOG_NAME)
 OPTITOPE_OPTS			?= 
 
-OPTITOPE_EVAL_NAME		?= made-optitope-evaluation.csv
-OPTITOPE_EVAL_LOG_NAME	?= made-optitope-evaluation.log
+OPTITOPE_EVAL_NAME		?= $(OPTITOPE_NAME)-evaluation.csv
+OPTITOPE_EVAL_LOG_NAME	?= $(OPTITOPE_NAME)-evaluation.log
 OPTITOPE_EVAL			?= $(BASE_DIR)/$(OPTITOPE_EVAL_NAME)
 OPTITOPE_EVAL_LOG		?= $(BASE_DIR)/$(OPTITOPE_EVAL_LOG_NAME)
 

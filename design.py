@@ -76,6 +76,14 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
             cost = float(row['cost'])
             if i != j and cost <= 9 - min_overlap:
                 edges[(i, j)] = cost
+
+    # the overlap file does not contain pairs that do not overlap, so we have to add them manually if needed
+    if min_overlap <= 0:
+        for i in range(1, len(epitopes)):
+            for j in range(1, len(epitopes)):
+                if i != j and (i, j) not in edges:
+                    edges[(i, j)] = 9
+
     LOGGER.info('Kept %d edges (from %d)', len(edges), len(epitopes) * (len(epitopes) - 1))
 
     # compute hla and protein coverage

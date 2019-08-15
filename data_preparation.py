@@ -311,10 +311,12 @@ def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty,
 
 
 def compute_overlaps_process(epitope, other_epitopes):
-    return [
-        (epitope, other, utilities.compute_suffix_prefix_cost(epitope, other))
-        for other in other_epitopes
-    ]
+    all_costs = []
+    for other in other_epitopes:
+        cost = utilities.compute_suffix_prefix_cost(epitope, other)
+        if cost < 9:
+            all_costs.append((epitope, other, cost))
+    return all_costs
 
 
 @main.command()

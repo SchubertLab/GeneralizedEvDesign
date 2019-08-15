@@ -1,6 +1,3 @@
-# This code is part of the Fred2 distribution and governed by its
-# license.  Please see the LICENSE file that should have been included
-# as part of this package.
 '''
    .. module:: Mosaic
    :synopsis:  This class implements the epitope selection functionality
@@ -47,7 +44,7 @@ class TeamOrienteeringIlp:
         self.logger = logging.getLogger(self.__class__.__name__)
 
         if num_teams < 1:
-            raise ValueError('at least one tema needed')
+            raise ValueError('at least one team needed')
 
         self._model = None
         self._result = None
@@ -58,11 +55,20 @@ class TeamOrienteeringIlp:
         self._solver_type = solver
         self._vertex_reward = vertex_reward
         self._num_teams = num_teams
-        self._edge_cost = edge_cost
         self._max_edge_cost = max_edge_cost
         self._max_vertices = max_vertices
         self._type_coverage = type_coverage
         self._min_type_coverage = min_type_coverage
+
+        if not isinstance(edge_cost, dict):
+            edges = {}
+            for i, row in enumerate(edge_cost):
+                for j, val in enumerate(row):
+                    if i != j:
+                        edges[(i, j)] = val
+            self._edge_cost = edges
+        else:
+            self._edge_cost = edge_cost
 
     def build_model(self):
         self.logger.info('Building model...')
@@ -77,19 +83,14 @@ class TeamOrienteeringIlp:
         # graph objects
         self._model.Teams = aml.RangeSet(0, self._num_teams - 1)
         self._model.Nodes = aml.RangeSet(0, len(self._vertex_reward) - 1)
-        self._model.Edges = aml.Set(initialize=[
-            (i, j)
-            for i in xrange(len(self._vertex_reward))
-            for j in xrange(len(self._vertex_reward))
-            if i != j
-        ])
+        self._model.Edges = aml.Set(initialize=self._edge_cost.keys())
 
         # reward of nodes and cost of edges
         self._model.r = aml.Param(self._model.Nodes, initialize=lambda model, n: self._vertex_reward[n])
-        self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[u][v])
+        self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[(u, v)])
 
         # indicator variables for nodes and arcs
-        self._model.x = aml.Var(self._model.Nodes * self._model.Nodes * self._model.Teams, domain=aml.Binary, initialize=0)
+        self._model.x = aml.Var(self._model.Edges * self._model.Teams, domain=aml.Binary, initialize=0)
         self._model.y = aml.Var(self._model.Nodes * self._model.Teams, domain=aml.Binary, initialize=0)
 
         # objective of the model: maximize reward collected from visited nodes
@@ -100,10 +101,14 @@ class TeamOrienteeringIlp:
 
         # every team must leave and come back
         self._model.TeamsLeave = aml.Constraint(
-            rule=lambda model: sum(model.x[0, n, t] for n in model.Nodes for t in model.Teams if n > 0) == model.TeamCount
+            rule=lambda model: sum(
+                model.x[(u, v), t] for u, v in model.Edges for t in model.Teams if u == 0
+            ) == model.TeamCount
         )
         self._model.TeamsReturn = aml.Constraint(
-            rule=lambda model: sum(model.x[n, 0, t] for n in model.Nodes for t in model.Teams if n > 0) == model.TeamCount
+            rule=lambda model: sum(
+                model.x[(u, v), t] for u, v in model.Edges for t in model.Teams if v == 0
+            ) == model.TeamCount
         )
 
         # every vertex must be visited at most once
@@ -119,13 +124,13 @@ class TeamOrienteeringIlp:
         self._model.Incoming = aml.Constraint(
             ((n, t) for n in self._model.Nodes for t in self._model.Teams),
             rule=lambda model, node, team: sum(
-                model.x[node, v, team] for v in model.Nodes if v != node
+                model.x[(node, v), team] for v in model.Nodes if v != node and (node, v) in model.Edges
             ) == model.y[node, team]
         )
         self._model.Outgoing = aml.Constraint(
             ((n, t) for n in self._model.Nodes for t in self._model.Teams),
             rule=lambda model, node, team: sum(
-                model.x[v, node, team] for v in model.Nodes if v != node
+                model.x[(v, node), team] for v in model.Nodes if v != node and (v, node) in model.Edges
             ) == model.y[node, team]
         )
 
@@ -133,14 +138,12 @@ class TeamOrienteeringIlp:
         if not self._lazy_subtour_elimination:
             self._model.u = aml.Var(self._model.Nodes * self._model.Teams, bounds=(1.0, len(self._vertex_reward) - 1))
             self._model.SubTour = aml.Constraint((
-                (i, j, t)
-                for i in xrange(1, len(self._vertex_reward))
-                for j in xrange(1, len(self._vertex_reward))
-                for t in xrange(self._num_teams)
-                if i != j
-            ), rule=lambda model, i, j, t: (
+                (u, v, t)
+                for u, v in self._model.Edges
+                for t in self._model.Teams
+            ), rule=lambda model, u, v, t: (
                 None,
-                model.u[i, t] - model.u[j, t] + (len(self._vertex_reward) - 1) * model.x[i, j, t],
+                model.u[u, t] - model.u[v, t] + (len(self._model.Nodes) - 1) * model.x[(u, v), t],
                 len(self._vertex_reward) - 2
             ))
 
@@ -210,7 +213,7 @@ class TeamOrienteeringIlp:
         def get_constraint(team):
             if max_edge_cost > 0:
                 return pmo.constraint(expr=sum(
-                    self._model.x[u, v, team] * self._model.d[u, v] for (u, v) in self._model.Edges
+                    self._model.x[(u, v), team] * self._model.d[u, v] for u, v in self._model.Edges
                 ) <= self._model.MaxEdgeCost)
             else:
                 return None
@@ -281,7 +284,7 @@ class TeamOrienteeringIlp:
         '''
         options = options if options is not None else {
             'MIPFocus': 3,  # focus on improving the bound
-            'Method': 3,    # use the concurrent solver for root relaxation
+            #'Method': 3,    # use the concurrent solver for root relaxation
         }
 
         self.logger.info('Solving started')
@@ -338,7 +341,7 @@ class TeamOrienteeringIlp:
                         self._model.x[i, j, team]
                         for i in tour_nodes
                         for j in tour_nodes
-                        if i != j
+                        if i != j and (i, j) in self._model.Edges
                     ),
                     ub=len(tour_nodes) - 1
                 )

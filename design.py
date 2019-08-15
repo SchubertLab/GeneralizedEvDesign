@@ -50,8 +50,10 @@ def main(verbose, log_file):
 @click.option('--max-epitopes', '-e', default=[10], multiple=True, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
-def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes,
-           top_proteins, top_immunogen, top_alleles, min_alleles, min_proteins):
+@click.option('--lazy-subtour', '-l', is_flag=True, help='Eliminate subtours lazily')
+@click.option('--min-overlap', '-o', default=0, help='Minimum epitope overlap')
+def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes, lazy_subtour,
+           top_proteins, top_immunogen, top_alleles, min_alleles, min_proteins, min_overlap):
     # load epitopes
     epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
     LOGGER.info('Loaded %d epitopes', len(epitope_data))
@@ -59,18 +61,25 @@ def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitope
     # compute edge cost
     epitopes = [''] + [b['epitope'] for b in epitope_data]
     vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
-    edge_cost = utilities.compute_suffix_prefix_cost(epitopes)
+    overlaps = utilities.compute_suffix_prefix_cost(epitopes)
+    edges = {}
+    for i, row in enumerate(overlaps):
+        for j, val in enumerate(row):
+            if i != j and (i == 0 or val <= 9 - min_overlap):
+                edges[(i, j)] = val
+    LOGGER.info('Kept %d edges (from %d)', len(edges), len(overlaps) * (len(overlaps) - 1))
 
     type_coverage, min_type_coverage = utilities.compute_coverage_matrix(epitope_data, min_alleles, min_proteins)
 
     # find optimal design
     solver = TeamOrienteeringIlp(
-        num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edge_cost,
-        max_edge_cost=0, max_vertices=0,
+        num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edges,
+        max_edge_cost=0, max_vertices=0, lazy_subtour_elimination=lazy_subtour,
         type_coverage=type_coverage, min_type_coverage=min_type_coverage
     )
     solver.build_model()
 
+    # sort ascending so that the previous solution is still feasible
     for ep in sorted(map(int, max_epitopes)):
         for am in sorted(map(int, max_aminoacids)):
             LOGGER.info('Solving with at most %d epitopes and most %d aminoacids', ep, am)

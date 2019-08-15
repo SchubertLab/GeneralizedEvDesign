@@ -199,13 +199,13 @@ def compute_all_pairs_suffix_prefix_cost(strings):
             elif i == 0:
                 cost = len(string_to)
             else:
-                all_costs[i, j] = compute_suffix_prefix_cost(str(string_to), str(string_from))
+                all_costs[i, j] = compute_suffix_prefix_cost(str(string_from), str(string_to))
     return all_costs
 
 
-def compute_suffix_prefix_cost(string_to, string_from):
+def compute_suffix_prefix_cost(string_from, string_to):
     k = 1
-    while k < len(string_from) and k < len(string_to) and string_from[-k:] == string_to[:k]:
+    while k <= len(string_from) and k <= len(string_to) and string_from[-k:] == string_to[:k]:
         k += 1
     return len(string_to) - k + 1
 

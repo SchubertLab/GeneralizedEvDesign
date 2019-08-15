@@ -131,7 +131,7 @@ Following are the commands required to prepare the data:
    |    0.154… | HLA-C\*07:02;HLA-A\*24:02 | 19;14    | MYAPPIEGL |
    |    0.057… | HLA-A*02:01             | 6;15     | LLALDSWAS |
 
-4. Compute the cleavage scores between all pairs of epitopes:
+4. Compute the cleavage scores between all pairs of epitopes (needed only for the string-of-beads design)
 
    ```
    make cleavages  # customize options with CLEAVAGE_OPTS="..."
@@ -154,6 +154,29 @@ Following are the commands required to prepare the data:
    | FLGAAGSTM | KLTPLCVTL |  1.310… |
    | ...       | ...       |     ... |
 
+5. Compute the overlaps between all pairs of epitopes (needed only for the mosaic design)
+
+   ```
+   make overlaps  # customize options with OVERLAPS_OPTS="..."
+   ```
+
+   Or:
+
+   ```
+   python data_preparation.py -v compute-overlaps dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-overlaps.csv
+   ```
+
+   Sample output:
+
+   | from      | to        | cost |
+   | --------- | --------- | ---- |
+   | RWLWYIKIF | RWLWYIKIF |    9 |
+   | MLRHVVAKL | HFPNKTIIF |    9 |
+   | YAPPISGYI | TYNNTYSTY |    8 |
+   | SILGFWMLI | CLSNITGLL |    9 |
+   | SITHWLWYI | AYFYRSDVV |    9 |
+   | ...       | ...       |  ... |
+
 ## Vaccine Design
  - Mosaic: use this generalized framework to design a mosaic vaccine
    
@@ -164,7 +187,7 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python design.py -v mosaic dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv
+   python design.py -v mosaic dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-overlaps.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv
    ```
 
  - String of Beads: use this generalized framework to design a string-of-beads vaccine

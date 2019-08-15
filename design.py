@@ -41,6 +41,7 @@ def main(verbose, log_file):
 
 @main.command()
 @click.argument('input-epitopes', type=click.Path())
+@click.argument('input-overlaps', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
 @click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', type=float)
 @click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
@@ -52,23 +53,32 @@ def main(verbose, log_file):
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
 @click.option('--lazy-subtour', '-l', is_flag=True, help='Eliminate subtours lazily')
 @click.option('--min-overlap', '-o', default=0, help='Minimum epitope overlap')
-def mosaic(input_epitopes, output_vaccine, cocktail, max_aminoacids, max_epitopes, lazy_subtour,
+def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoacids, max_epitopes, lazy_subtour,
            top_proteins, top_immunogen, top_alleles, min_alleles, min_proteins, min_overlap):
+
     # load epitopes
     epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
     LOGGER.info('Loaded %d epitopes', len(epitope_data))
 
-    # compute edge cost
-    epitopes = [''] + [b['epitope'] for b in epitope_data]
+    # load edge cost
     vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
-    overlaps = utilities.compute_suffix_prefix_cost(epitopes)
-    edges = {}
-    for i, row in enumerate(overlaps):
-        for j, val in enumerate(row):
-            if i != j and (i == 0 or val <= 9 - min_overlap):
-                edges[(i, j)] = val
-    LOGGER.info('Kept %d edges (from %d)', len(edges), len(overlaps) * (len(overlaps) - 1))
+    epitopes = [''] + [b['epitope'] for b in epitope_data]
+    epitope_index = {e: i for i, e in enumerate(epitopes)}
 
+    edges = {}
+    for i, e in enumerate(epitope_data):
+        edges[(0, i)] = len(e['epitope'])
+        edges[(i, 0)] = 0
+
+    with open(input_overlaps) as f:
+        for row in csv.DictReader(f):
+            i, j = epitope_index[row['from']], epitope_index[row['to']]
+            cost = float(row['cost'])
+            if i != j and cost <= 9 - min_overlap:
+                edges[(i, j)] = cost
+    LOGGER.info('Kept %d edges (from %d)', len(edges), len(epitopes) * (len(epitopes) - 1))
+
+    # compute hla and protein coverage
     type_coverage, min_type_coverage = utilities.compute_coverage_matrix(epitope_data, min_alleles, min_proteins)
 
     # find optimal design

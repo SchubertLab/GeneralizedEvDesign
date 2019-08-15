@@ -40,56 +40,6 @@ import csv
 LOGGER = None
 
 
-class Trie:
-    def __init__(self):
-        self.children = {}
-    
-    def _get_child(self, letter, create=True):
-        if create and self.children.get(letter) is None:
-            self.children[letter] = Trie()
-        return self.children.get(letter)
-    
-    def insert(self, string, pos_in_string=0):
-        if pos_in_string >= len(string):
-            return
-        
-        child = self._get_child(string[pos_in_string], create=True)
-        child.insert(string, pos_in_string + 1)
-    
-    def reachable_strings(self, string, mistakes_allowed, pos_in_string=0, mistakes_done=0):
-        ''' yields all strings in the trie that can be reached from the given strings
-            by changing at most `mistakes_allowed` characters, and the number of characters changed
-        '''
-        if not isinstance(string, list):
-            string = list(string)
-
-        if pos_in_string >= len(string):
-            yield ''.join(string), mistakes_done
-            return
-        
-        if mistakes_allowed - mistakes_done <= 0:
-            child = self._get_child(string[pos_in_string], create=False)
-            if child is not None:
-                reachable = child.reachable_strings(string, mistakes_allowed,
-                                                    pos_in_string + 1, mistakes_done)
-                for s in reachable:
-                    yield s
-        else:
-            for letter, child in self.children.iteritems():
-                if letter == string[pos_in_string]:
-                    reachable = child.reachable_strings(string, mistakes_allowed,
-                                                        pos_in_string + 1, mistakes_done)
-                    for s in reachable:
-                        yield s
-                else:
-                    correct = string[pos_in_string]
-                    string[pos_in_string] = letter
-                    reachable = child.reachable_strings(string, mistakes_allowed,
-                                                        pos_in_string + 1, mistakes_done + 1)
-                    for s in reachable:
-                        yield s
-                    string[pos_in_string] = correct
-
 
 @click.group()
 @click.option('--verbose', '-v', is_flag=True, help='Print debug messages on the console')
@@ -155,7 +105,7 @@ def extract_peptides(input_sequences, max_edits, output_peptides, top_n):
     LOGGER.info('%d proteins read', len(proteins))
 
     LOGGER.info('Extracting protein coverage for each peptide...')
-    all_peptides = Trie()
+    all_peptides = utilities.Trie()
     proteins_by_peptide = {}
     for i, prot in enumerate(proteins):
         aminoacids = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
@@ -215,21 +165,6 @@ def get_binding_affinity_process(batch, alleles):
 def compute_affinities(input_alleles, input_peptides, output_affinities, processes):
     ''' Computes the binding affinities between the given peptides and HLA alleles
     '''
-    def iterbatches(it, bsize):
-        batch = []
-        while True:
-            try:
-                batch.append(next(it))
-            except StopIteration:
-                break
-
-            if len(batch) >= bsize:
-                yield batch
-                batch = []
-
-        if batch:
-            yield batch
-
     alleles = [Allele(a) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
     LOGGER.info('Loaded %d alleles', len(alleles))
 
@@ -242,25 +177,16 @@ def compute_affinities(input_alleles, input_peptides, output_affinities, process
     peptides.sort(key=lambda p: p[1], reverse=True)
     LOGGER.info('Loaded %d peptides', len(peptides))
 
-    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
+    results = utilities.parallel_apply(get_binding_affinity_process, (
+        (batch, alleles)
+        for batch in utilities.batches((p for p, _ in peptides), bsize=256)
+    ), processes)
 
-    try:
-        tasks = []
-        for batch in iterbatches((p for p, _ in peptides), bsize=512):
-            tasks.append(pool.apply_async(get_binding_affinity_process, (batch, alleles)))
-        
-        count = 0
-        for result in tasks:
-            bindings = result.get(999999)
-            bindings.to_csv(output_affinities, header=(count == 0), mode=('w' if count == 0 else 'a'))
-            count += len(bindings)
-            LOGGER.debug('Processed %d peptides (%.2f%%)...', count, 100 * count / len(peptides))
-    except:
-        pool.terminate()
-        pool.join()
-        raise
-    else:
-        pool.close()
+    count = 0
+    for bindings in results:
+        bindings.to_csv(output_affinities, header=(count == 0), mode=('w' if count == 0 else 'a'))
+        count += len(bindings)
+        LOGGER.debug('Processed %d peptides (%.2f%%)...', count, 100 * count / len(peptides))
 
 
 @main.command()
@@ -353,8 +279,8 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
 
 
 @main.command()
-@click.argument('input-epitopes')
-@click.argument('output-cleavages')
+@click.argument('input-epitopes', type=click.Path())
+@click.argument('output-cleavages', type=click.Path())
 @click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', type=float)
 @click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
 @click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
@@ -367,31 +293,55 @@ def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty,
     LOGGER.info('Loaded %d epitopes', len(epitopes))
     
     LOGGER.info('Predicting cleavage sites of all pairs...')
-    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
+    results = utilities.parallel_apply(get_cleavage_score_process, (
+        (penalty, cleavage_model, cleavage_window, [(e, f) for f in epitopes])
+        for e in epitopes
+    ), processes)
 
-    try:
-        tasks = []
-        for e in epitopes:
-            tasks.append(pool.apply_async(
-                get_cleavage_score_process,
-                (penalty, cleavage_model, cleavage_window, [(e, f) for f in epitopes])
-            ))
-        
-        with open(output_cleavages, 'w') as f:
-            writer = csv.writer(f)
-            writer.writerow(('from', 'to', 'score'))
-            for i, result in enumerate(tasks):
-                for e, f, score in result.get(99999):
-                    writer.writerow((e, f, score))
-                if is_percent_barrier(i, len(tasks), 1):
-                    LOGGER.debug('Processed %d cleavage pairs (%.2f%%)...',
-                                 len(epitopes) * (i + 1), 100 * (i + 1) / len(tasks))
-    except:
-        pool.terminate()
-        pool.join()
-        raise
-    else:
-        pool.close()
+    with open(output_cleavages, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(('from', 'to', 'score'))
+        for i, res in enumerate(results):
+            for e, f, score in res:
+                writer.writerow((e, f, score))
+
+            if is_percent_barrier(i, len(epitopes), 1):
+                LOGGER.debug('Processed %d cleavage pairs (%.2f%%)...',
+                             len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
+
+
+def compute_overlaps_process(epitope, other_epitopes):
+    return [
+        (epitope, other, utilities.compute_suffix_prefix_cost(epitope, other))
+        for other in other_epitopes
+    ]
+
+
+@main.command()
+@click.argument('input-epitopes', type=click.Path())
+@click.argument('output-overlaps', type=click.Path())
+@click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
+def compute_overlaps(input_epitopes, output_overlaps, processes):
+    ''' Compute the all-pairs overlap cost for the epitopes
+    '''
+    epitopes = utilities.load_epitopes(input_epitopes).keys()
+    LOGGER.info('Loaded %d epitopes', len(epitopes))
+
+    LOGGER.info('Computing overlaps of all pairs...')
+    results = utilities.parallel_apply(compute_overlaps_process, (
+        (e, epitopes) for e in epitopes
+    ), processes)
+
+    with open(output_overlaps, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(('from', 'to', 'cost'))
+        for i, res in enumerate(results):
+            for ep_to, ep_from, cost in res:
+                writer.writerow((ep_to, ep_from, cost))
+
+            if is_percent_barrier(i, len(epitopes), 1):
+                LOGGER.debug('Processed %d overlap pairs (%.2f%%)...',
+                            len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
 
 
 if __name__ == '__main__':

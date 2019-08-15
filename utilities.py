@@ -1,10 +1,62 @@
 import numpy as np
+import multiprocessing as mp
 import logging
 import pandas as pd
 from Fred2.Core import Allele, Peptide, Protein
 from Fred2.IO import FileReader
 from Fred2.EpitopePrediction import EpitopePredictionResult
 import csv
+
+
+class Trie:
+    def __init__(self):
+        self.children = {}
+    
+    def _get_child(self, letter, create=True):
+        if create and self.children.get(letter) is None:
+            self.children[letter] = Trie()
+        return self.children.get(letter)
+    
+    def insert(self, string, pos_in_string=0):
+        if pos_in_string >= len(string):
+            return
+        
+        child = self._get_child(string[pos_in_string], create=True)
+        child.insert(string, pos_in_string + 1)
+    
+    def reachable_strings(self, string, mistakes_allowed, pos_in_string=0, mistakes_done=0):
+        ''' yields all strings in the trie that can be reached from the given strings
+            by changing at most `mistakes_allowed` characters, and the number of characters changed
+        '''
+        if not isinstance(string, list):
+            string = list(string)
+
+        if pos_in_string >= len(string):
+            yield ''.join(string), mistakes_done
+            return
+        
+        if mistakes_allowed - mistakes_done <= 0:
+            child = self._get_child(string[pos_in_string], create=False)
+            if child is not None:
+                reachable = child.reachable_strings(string, mistakes_allowed,
+                                                    pos_in_string + 1, mistakes_done)
+                for s in reachable:
+                    yield s
+        else:
+            for letter, child in self.children.iteritems():
+                if letter == string[pos_in_string]:
+                    reachable = child.reachable_strings(string, mistakes_allowed,
+                                                        pos_in_string + 1, mistakes_done)
+                    for s in reachable:
+                        yield s
+                else:
+                    correct = string[pos_in_string]
+                    string[pos_in_string] = letter
+                    reachable = child.reachable_strings(string, mistakes_allowed,
+                                                        pos_in_string + 1, mistakes_done + 1)
+                    for s in reachable:
+                        yield s
+                    string[pos_in_string] = correct
 
 
 def compute_coverage_matrix(epitope_data, min_alleles, min_proteins):
@@ -137,7 +189,7 @@ def init_logging(verbose, log_file, log_append=False):
     return logger
 
 
-def compute_suffix_prefix_cost(strings):
+def compute_all_pairs_suffix_prefix_cost(strings):
     all_costs = np.zeros((len(strings), len(strings)))
     for i, string_from in enumerate(strings):
         for j, string_to in enumerate(strings):
@@ -146,12 +198,63 @@ def compute_suffix_prefix_cost(strings):
                 cost = 0
             elif i == 0:
                 cost = len(string_to)
-            else:  # compute longest suffix-prefix
-                k = 1
-                string_to, string_from = str(string_to), str(string_from)
-                while k < len(string_from) and k < len(string_to) and string_from[-k:] == string_to[:k]:
-                    k += 1
-                cost = len(string_to) - k + 1
-
-            all_costs[i, j] = cost
+            else:
+                all_costs[i, j] = compute_suffix_prefix_cost(str(string_to), str(string_from))
     return all_costs
+
+
+def compute_suffix_prefix_cost(string_to, string_from):
+    k = 1
+    while k < len(string_from) and k < len(string_to) and string_from[-k:] == string_to[:k]:
+        k += 1
+    return len(string_to) - k + 1
+
+
+def itake(it, n):
+    res = []
+    for i in range(n):
+        try:
+            res.append(next(it))
+        except StopIteration:
+            break
+    return res
+
+
+def batches(it, bsize):
+    res = 3
+    while res:
+        res = itake(it, bsize)
+        if res:
+            yield res
+
+
+def parallel_apply(apply_fn, task_generator, processes, preload=64, timeout=99999):
+    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
+
+    try:
+        tasks = []
+        task_count = processed_count = 0
+        for task in itake(task_generator, preload):
+            tasks.append(pool.apply_async(apply_fn, task))
+            task_count += 1
+        
+        cursor = 0
+        while processed_count < task_count:
+            result = tasks[cursor].get(timeout)
+            yield result
+            tasks[cursor] = None
+            
+            processed_count += 1
+            cursor += 1
+            next_task = itake(task_generator, 1)
+            if next_task:
+                tasks.append(pool.apply_async(apply_fn, next_task[0]))
+                task_count += 1
+
+    except:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
+        pool.close()
+

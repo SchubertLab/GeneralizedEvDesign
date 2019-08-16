@@ -205,9 +205,12 @@ def compute_all_pairs_suffix_prefix_cost(strings):
 
 def compute_suffix_prefix_cost(string_from, string_to):
     k = 1
-    while k <= len(string_from) and k <= len(string_to) and string_from[-k:] == string_to[:k]:
+    overlap = 0
+    while k <= len(string_from) and k <= len(string_to):
+        if string_from[-k:] == string_to[:k]:
+            overlap = k
         k += 1
-    return len(string_to) - k + 1
+    return len(string_to) - overlap
 
 
 def itake(it, n):

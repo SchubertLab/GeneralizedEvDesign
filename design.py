@@ -72,9 +72,9 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
 
     with open(input_overlaps) as f:
         for row in csv.DictReader(f):
-            i, j = epitope_index[row['from']], epitope_index[row['to']]
+            i, j = epitope_index.get(row['from']), epitope_index.get(row['to'])
             cost = float(row['cost'])
-            if i != j and cost <= 9 - min_overlap:
+            if i is not None and j is not None and i != j and cost <= 9 - min_overlap:
                 edges[(i, j)] = cost
 
     # the overlap file does not contain pairs that do not overlap, so we have to add them manually if needed
@@ -135,7 +135,8 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
-def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,
+@click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
+def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, greedy_subtour,
                     max_aminoacids, max_epitopes, min_alleles, min_proteins):
     program_start_time = time.time()
 
@@ -163,8 +164,11 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,
             cleavages[(ep_from, ep_to)] if ep_from != '' and ep_to != '' else 0.0
             for ep_to in vertex_to_epitope
         ])
+    LOGGER.info('Kept %d epitopes with available clevages', len(vertices) - 1)
 
-    type_coverage, min_type_coverage = utilities.compute_coverage_matrix(epitopes, min_alleles, min_proteins)
+    type_coverage, min_type_coverage = utilities.compute_coverage_matrix([
+        epitopes[e] for e in vertex_to_epitope[1:]
+    ], min_alleles, min_proteins)
 
     # find optimal design
     solver_build_time = time.time()
@@ -172,6 +176,7 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail,
         num_teams=cocktail, vertex_reward=vertices_rewards, edge_cost=edge_cost,
         type_coverage=type_coverage, min_type_coverage=min_type_coverage,
         max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
+        lazy_subtour_elimination=not greedy_subtour
     )
     solver.build_model()
     solver_start_time = time.time()

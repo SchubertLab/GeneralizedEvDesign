@@ -24,6 +24,7 @@ import multiprocessing as mp
 import StringIO
 import sys
 import time
+from collections import defaultdict
 
 import numpy as np
 import pyomo.environ as aml
@@ -60,19 +61,15 @@ class TeamOrienteeringIlp:
         self._type_coverage = type_coverage
         self._min_type_coverage = min_type_coverage
 
-        if not isinstance(edge_cost, dict):
-            self.logger.debug('Using dense mode to build model')
-            self._is_graph_sparse = False
-            edges = {}
-            for i, row in enumerate(edge_cost):
-                for j, val in enumerate(row):
-                    if i != j:
-                        edges[(i, j)] = val
-            self._edge_cost = edges
-        else:
+        if isinstance(edge_cost, dict):
+            # in this case, the edge costs is a dictionary (u, v) -> cost
             self.logger.debug('Using sparse mode to build model')
             self._is_graph_sparse = True
-            self._edge_cost = edge_cost
+        else:
+            # in this case, we have a matrix (array of arrays)
+            self.logger.debug('Using dense mode to build model')
+            self._is_graph_sparse = False
+        self._edge_cost = edge_cost
 
     def build_model(self):
         self.logger.info('Building model...')
@@ -80,28 +77,28 @@ class TeamOrienteeringIlp:
         self._model = aml.ConcreteModel()
 
         # model parameters
-        self.logger.debug('Adding model parameters...')
+        self.logger.debug('Adding graph objects...')
         self._model.TeamCount = aml.Param(initialize=self._num_teams, mutable=True)
         self._model.MaxEdgeCost = aml.Param(initialize=self._max_edge_cost, mutable=True)
         self._model.MaxVertexCount = aml.Param(initialize=self._max_vertices, mutable=True)
 
-        # graph objects
-        self.logger.debug('Adding graph objects...')
         self._model.Teams = aml.RangeSet(0, self._num_teams - 1)
         self._model.Nodes = aml.RangeSet(0, len(self._vertex_reward) - 1)
-        self._model.Edges = aml.Set(initialize=self._edge_cost.keys())
-        if self._is_graph_sparse:
-            self._model.NodesIn = aml.Set(self._model.Nodes, initialize=lambda model, node: [
-                u for u, v in model.Edges if v == node and u != node
-            ])
-            self._model.NodesOut = aml.Set(self._model.Nodes, initialize=lambda model, node: [
-                v for u, v in model.Edges if u == node and v != node
-            ])
-
-        # reward of nodes and cost of edges
-        self.logger.debug('Adding variables...')
         self._model.r = aml.Param(self._model.Nodes, initialize=lambda model, n: self._vertex_reward[n])
-        self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[(u, v)])
+
+        if self._is_graph_sparse:
+            nodes_in, nodes_out = defaultdict(list), defaultdict(list)
+            for u, v in self._edge_cost:
+                nodes_in[v].append(u)
+                nodes_out[u].append(v)
+
+            self._model.Edges = aml.Set(initialize=self._edge_cost.keys())
+            self._model.NodesIn = aml.Set(self._model.Nodes, initialize=lambda model, node: nodes_in[node])
+            self._model.NodesOut = aml.Set(self._model.Nodes, initialize=lambda model, node: nodes_out[node])
+            self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[(u, v)])
+        else:
+            self._model.Edges = aml.Set(initialize=self._model.Nodes * self._model.Nodes, filter=lambda model, u, v: u != v)
+            self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[u][v])
 
         # indicator variables for nodes and arcs
         self._model.x = aml.Var(self._model.Edges * self._model.Teams, domain=aml.Binary, initialize=0)
@@ -147,10 +144,10 @@ class TeamOrienteeringIlp:
             ) == model.y[node, team]
         else:
             in_rule=lambda model, node, team: sum(
-                model.x[(node, v), team] for v in model.Nodes if v != node and (node, v) in model.Edges
+                model.x[(node, v), team] for v in model.Nodes if v != node
             ) == model.y[node, team]
             out_rule = lambda model, node, team: sum(
-                model.x[(v, node), team] for v in model.Nodes if v != node and (v, node) in model.Edges
+                model.x[(v, node), team] for v in model.Nodes if v != node
             ) == model.y[node, team]
 
         self._model.Incoming = aml.Constraint(
@@ -170,6 +167,7 @@ class TeamOrienteeringIlp:
                 (u, v, t)
                 for u, v in self._model.Edges
                 for t in self._model.Teams
+                if u != 0 and v != 0
             ), rule=lambda model, u, v, t: (
                 model.u[u, t] - model.u[v, t] + 1 <= (len(model.Nodes) - 1) * (1 - model.x[(u, v), t])
             ))

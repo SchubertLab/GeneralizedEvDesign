@@ -51,7 +51,7 @@ def main(verbose, log_file):
 @click.option('--max-epitopes', '-e', default=[10], multiple=True, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
-@click.option('--greedy-subtour', '-l', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
+@click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
 @click.option('--min-overlap', '-o', default=0, help='Minimum epitope overlap')
 def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoacids, max_epitopes, greedy_subtour,
            top_proteins, top_immunogen, top_alleles, min_alleles, min_proteins, min_overlap):

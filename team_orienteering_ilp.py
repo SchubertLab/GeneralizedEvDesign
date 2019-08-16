@@ -61,6 +61,8 @@ class TeamOrienteeringIlp:
         self._min_type_coverage = min_type_coverage
 
         if not isinstance(edge_cost, dict):
+            self.logger.debug('Using dense mode to build model')
+            self._is_graph_sparse = False
             edges = {}
             for i, row in enumerate(edge_cost):
                 for j, val in enumerate(row):
@@ -68,6 +70,8 @@ class TeamOrienteeringIlp:
                         edges[(i, j)] = val
             self._edge_cost = edges
         else:
+            self.logger.debug('Using sparse mode to build model')
+            self._is_graph_sparse = True
             self._edge_cost = edge_cost
 
     def build_model(self):
@@ -76,16 +80,26 @@ class TeamOrienteeringIlp:
         self._model = aml.ConcreteModel()
 
         # model parameters
+        self.logger.debug('Adding model parameters...')
         self._model.TeamCount = aml.Param(initialize=self._num_teams, mutable=True)
         self._model.MaxEdgeCost = aml.Param(initialize=self._max_edge_cost, mutable=True)
         self._model.MaxVertexCount = aml.Param(initialize=self._max_vertices, mutable=True)
 
         # graph objects
+        self.logger.debug('Adding graph objects...')
         self._model.Teams = aml.RangeSet(0, self._num_teams - 1)
         self._model.Nodes = aml.RangeSet(0, len(self._vertex_reward) - 1)
         self._model.Edges = aml.Set(initialize=self._edge_cost.keys())
+        if self._is_graph_sparse:
+            self._model.NodesIn = aml.Set(self._model.Nodes, initialize=lambda model, node: [
+                u for u, v in model.Edges if v == node and u != node
+            ])
+            self._model.NodesOut = aml.Set(self._model.Nodes, initialize=lambda model, node: [
+                v for u, v in model.Edges if u == node and v != node
+            ])
 
         # reward of nodes and cost of edges
+        self.logger.debug('Adding variables...')
         self._model.r = aml.Param(self._model.Nodes, initialize=lambda model, n: self._vertex_reward[n])
         self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[(u, v)])
 
@@ -100,6 +114,7 @@ class TeamOrienteeringIlp:
         )
 
         # every team must leave and come back
+        self.logger.debug('Adding leave and return constraints...')
         self._model.TeamsLeave = aml.Constraint(
             rule=lambda model: sum(
                 model.x[(u, v), t] for u, v in model.Edges for t in model.Teams if u == 0
@@ -112,6 +127,7 @@ class TeamOrienteeringIlp:
         )
 
         # every vertex must be visited at most once
+        self.logger.debug('Adding visit count constraint...')
         self._model.VertexVisit = aml.Constraint(
             (n for n in self._model.Nodes if n != 0),
             rule=lambda model, node: sum(model.y[node, t] for t in model.Teams) <= 1
@@ -121,33 +137,45 @@ class TeamOrienteeringIlp:
         # i.e. no sources or sinks (implies path is connected)
         #      enforces consistency between x and y (i.e. node touched by arcs if and only if it is selected)
         #      and at most one path passes from the node
-        self._model.Incoming = aml.Constraint(
-            ((n, t) for n in self._model.Nodes for t in self._model.Teams),
-            rule=lambda model, node, team: sum(
+        self.logger.debug('Adding consistency and connectedness constraints...')
+        if self._is_graph_sparse:
+            in_rule = lambda model, node, team: sum(
+                model.x[(v, node), team] for v in model.NodesIn[node]
+            ) == model.y[node, team]
+            out_rule = lambda model, node, team: sum(
+                model.x[(node, v), team] for v in model.NodesOut[node]
+            ) == model.y[node, team]
+        else:
+            in_rule=lambda model, node, team: sum(
                 model.x[(node, v), team] for v in model.Nodes if v != node and (node, v) in model.Edges
             ) == model.y[node, team]
+            out_rule = lambda model, node, team: sum(
+                model.x[(v, node), team] for v in model.Nodes if v != node and (v, node) in model.Edges
+            ) == model.y[node, team]
+
+        self._model.Incoming = aml.Constraint(
+            ((n, t) for n in self._model.Nodes for t in self._model.Teams),
+            rule=in_rule
         )
         self._model.Outgoing = aml.Constraint(
             ((n, t) for n in self._model.Nodes for t in self._model.Teams),
-            rule=lambda model, node, team: sum(
-                model.x[(v, node), team] for v in model.Nodes if v != node and (v, node) in model.Edges
-            ) == model.y[node, team]
+            rule=out_rule
         )
 
         # subtour elimination, if required
         if not self._lazy_subtour_elimination:
-            self._model.u = aml.Var(self._model.Nodes * self._model.Teams, bounds=(1.0, len(self._vertex_reward) - 1))
+            self.logger.debug('Adding subtour elimination constraints...')
+            self._model.u = aml.Var(self._model.Nodes * self._model.Teams, bounds=(1.0, len(self._model.Nodes) - 1))
             self._model.SubTour = aml.Constraint((
                 (u, v, t)
                 for u, v in self._model.Edges
                 for t in self._model.Teams
             ), rule=lambda model, u, v, t: (
-                None,
-                model.u[u, t] - model.u[v, t] + (len(self._model.Nodes) - 1) * model.x[(u, v), t],
-                len(self._vertex_reward) - 2
+                model.u[u, t] - model.u[v, t] + 1 <= (len(model.Nodes) - 1) * (1 - model.x[(u, v), t])
             ))
 
         if self._type_coverage and self._min_type_coverage:
+            self.logger.debug('Adding type coverage constraints...')
             # type_coverage is a binary tensor s.t. C_ijk = 1 iff vertex j covers option k of type i
             # min_type_coverage is a vector s.t. c_i is the minimum options of type i that the vaccine must cover
             self._model.Types = aml.RangeSet(0, len(self._type_coverage) - 1)

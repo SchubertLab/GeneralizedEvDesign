@@ -39,8 +39,8 @@ from pyomo.opt import SolverFactory, TerminationCondition
 class TeamOrienteeringIlp:
 
     def __init__(self, num_teams, vertex_reward, edge_cost, max_edge_cost, max_vertices,
-                 type_coverage=None, min_type_coverage=None, lazy_subtour_elimination=False,
-                 solver='gurobi_persistent'):
+                 type_coverage=None, min_type_coverage=None, min_type_conservation=None,
+                 lazy_subtour_elimination=False, solver='gurobi_persistent'):
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -60,6 +60,7 @@ class TeamOrienteeringIlp:
         self._max_vertices = max_vertices
         self._type_coverage = type_coverage
         self._min_type_coverage = min_type_coverage
+        self._min_type_conservation = min_type_conservation
 
         if isinstance(edge_cost, dict):
             # in this case, the edge costs is a dictionary (u, v) -> cost
@@ -172,8 +173,12 @@ class TeamOrienteeringIlp:
                 model.u[u, t] - model.u[v, t] + 1 <= (len(model.Nodes) - 1) * (1 - model.x[(u, v), t])
             ))
 
-        if self._type_coverage and self._min_type_coverage:
-            self.logger.debug('Adding type coverage constraints...')
+        if self._type_coverage and (self._min_type_coverage or self._min_type_conservation):
+            assert (not self._min_type_coverage
+                or not self._min_type_conservation
+                or len(self._min_type_conservation) == len(self._min_type_coverage))
+
+            self.logger.debug('Adding coverage information...')
             # type_coverage is a binary tensor s.t. C_ijk = 1 iff vertex j covers option k of type i
             # min_type_coverage is a vector s.t. c_i is the minimum options of type i that the vaccine must cover
             self._model.Types = aml.RangeSet(0, len(self._type_coverage) - 1)
@@ -185,26 +190,48 @@ class TeamOrienteeringIlp:
             self._model.OptionCovered = aml.Var(self._model.Types * self._model.Options, domain=aml.Binary, initialize=0)
             self._model.OptionCoveredConstraint = aml.Constraint(
                 self._model.Types * self._model.Options,
-                rule = lambda model, typ, option: sum(
+                rule=lambda model, typ, option: sum(
                     model.y[n, t] * model.TypeCoverage[typ, n, option]
                     for n in model.Nodes for t in model.Teams
                 ) >= model.OptionCovered[typ, option]
             )
 
-            # sum of above indicator variables must be at least the minimum option coverage for each type
-            self._model.MinOptionCoverage = aml.Param(
-                self._model.Types, initialize=lambda model, typ: self._min_type_coverage[typ]
-            )
-            self._model.MinOptionCoverageConstraint = aml.Constraint(
-                self._model.Types,
-                rule=lambda model, typ: sum(
-                    model.OptionCovered[typ, o] for o in model.Options
-                ) >= model.MinOptionCoverage[typ]
-            )
-            self.logger.info('Enforcing minimum coverage with %d types and %d options per type',
-                             len(self._type_coverage), len(self._type_coverage[0][0]))
+            self.logger.debug('Enforcing minimum coverage and/or conservation with %d types and %d options per type',
+                              len(self._type_coverage), len(self._type_coverage[0][0]))
+
+            if self._min_type_coverage:
+                self.logger.debug('Adding minimum coverage for each type...')
+                # sum of above indicator variables must be at least the minimum option coverage for each type
+                self._model.MinOptionCoverage = aml.Param(
+                    self._model.Types, initialize=lambda model, typ: self._min_type_coverage[typ]
+                )
+                self._model.MinOptionCoverageConstraint = aml.Constraint(
+                    self._model.Types,
+                    rule=lambda model, typ: (model.MinOptionCoverage[typ], sum(
+                        model.OptionCovered[typ, o] for o in model.Options
+                    ), None)
+                )
+
+            if self._min_type_conservation:
+                # every vertex must cover a minimum number of different options
+                self.logger.debug('Adding minimum conservation for each vertex...')
+                self._model.MinOptionConservation = aml.Param(
+                    self._model.Types, initialize=lambda model, typ: self._min_type_conservation[typ]
+                )
+
+                def min_option_conservation_constraint_rule(model, node, team, typ):
+                    ub = (
+                        sum(model.TypeCoverage[typ, node, o] for o in model.Options)
+                        - model.MinOptionConservation[typ] + 1
+                    ) if node > 0 else 1
+                    return (None, model.y[node, team], max(0, ub))
+
+                self._model.MinOptionConservationConstraint = aml.Constraint(
+                    self._model.Nodes * self._model.Teams * self._model.Types,
+                    rule=min_option_conservation_constraint_rule
+                )
         else:
-            self.logger.info('No type coverage enforced')
+            self.logger.info('No coverage enforced')
 
         self._solver = SolverFactory(self._solver_type)
         self._solver.set_instance(self._model)
@@ -308,10 +335,6 @@ class TeamOrienteeringIlp:
     def _solve(self, options=None):
         ''' solves the model optimally
         '''
-        options = options if options is not None else {
-            'MIPFocus': 3,  # focus on improving the bound
-            #'Method': 3,    # use the concurrent solver for root relaxation
-        }
 
         self.logger.info('Solving started')
         if self._model is None:
@@ -319,7 +342,7 @@ class TeamOrienteeringIlp:
         self._subtour_constraints = 0
 
         while True:
-            res = self._solver.solve(options=options, tee=1, save_results=False, report_timing=True)
+            res = self._solver.solve(options=options or {}, tee=1, save_results=False, report_timing=True)
             if res.solver.termination_condition != TerminationCondition.optimal:
                 raise RuntimeError('Could not solve problem - %s . Please check your settings' % res.Solution.status)
 

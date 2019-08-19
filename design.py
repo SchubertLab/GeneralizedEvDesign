@@ -51,10 +51,13 @@ def main(verbose, log_file):
 @click.option('--max-epitopes', '-e', default=[10], multiple=True, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
+@click.option('--min-prot-conservation', default=0.0, help='Every epitope in the vaccine must cover at least this many proteins')
+@click.option('--min-alle-conservation', default=0.0, help='Every epitope in the vaccine must cover at least this many alleles')
 @click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
 @click.option('--min-overlap', '-o', default=0, help='Minimum epitope overlap')
-def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoacids, max_epitopes, greedy_subtour,
-           top_proteins, top_immunogen, top_alleles, min_alleles, min_proteins, min_overlap):
+def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoacids,
+           max_epitopes, greedy_subtour, top_proteins, top_immunogen, top_alleles, min_alleles,
+           min_proteins, min_overlap, min_prot_conservation, min_alle_conservation):
 
     # load epitopes
     epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
@@ -88,13 +91,16 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
     LOGGER.info('Kept %d edges (from %d)', len(edges), len(epitopes) * (len(epitopes) - 1))
 
     # compute hla and protein coverage
-    type_coverage, min_type_coverage = utilities.compute_coverage_matrix(epitope_data, min_alleles, min_proteins)
+    type_coverage, min_type_coverage, min_type_conservation = utilities.compute_coverage_matrix(
+        epitope_data, min_alleles, min_proteins, min_prot_conservation, min_alle_conservation
+    )
 
     # find optimal design
     solver = TeamOrienteeringIlp(
         num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edges,
         max_edge_cost=0, max_vertices=0, lazy_subtour_elimination=not greedy_subtour,
-        type_coverage=type_coverage, min_type_coverage=min_type_coverage
+        type_coverage=type_coverage, min_type_coverage=min_type_coverage,
+        min_type_conservation=min_type_conservation,
     )
     solver.build_model()
 
@@ -136,9 +142,11 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
 @click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
+@click.option('--min-prot-conservation', default=0.0, help='Every epitope in the vaccine must cover at least this many proteins')
+@click.option('--min-alle-conservation', default=0.0, help='Every epitope in the vaccine must cover at least this many alleles')
 @click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
-def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, greedy_subtour,
-                    max_aminoacids, max_epitopes, min_alleles, min_proteins):
+def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, greedy_subtour, max_aminoacids,
+                    max_epitopes, min_alleles, min_proteins, min_prot_conservation, min_alle_conservation):
     program_start_time = time.time()
 
     # load epitopes
@@ -167,17 +175,17 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, g
         ])
     LOGGER.info('Kept %d epitopes with available clevages', len(vertices) - 1)
 
-    type_coverage, min_type_coverage = utilities.compute_coverage_matrix([
+    type_coverage, min_type_coverage, min_type_conservation = utilities.compute_coverage_matrix([
         epitopes[e] for e in vertex_to_epitope[1:]
-    ], min_alleles, min_proteins)
+    ], min_alleles, min_proteins, min_prot_conservation, min_alle_conservation)
 
     # find optimal design
     solver_build_time = time.time()
     solver = TeamOrienteeringIlp(
         num_teams=cocktail, vertex_reward=vertices_rewards, edge_cost=edge_cost,
         type_coverage=type_coverage, min_type_coverage=min_type_coverage,
-        max_edge_cost=max_aminoacids, max_vertices=max_epitopes,
-        lazy_subtour_elimination=not greedy_subtour
+        min_type_conservation=min_type_conservation, max_edge_cost=max_aminoacids,
+        max_vertices=max_epitopes, lazy_subtour_elimination=not greedy_subtour
     )
     solver.build_model()
     solver_start_time = time.time()

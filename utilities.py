@@ -59,28 +59,31 @@ class Trie:
                     string[pos_in_string] = correct
 
 
-def compute_coverage_matrix(epitope_data, min_alleles, min_proteins):
+def compute_coverage_matrix(epitope_data, min_alleles, min_proteins, min_prot_conservation, min_alle_conservation):
+    def make_absolute(value, maxval):
+        return int(value) if value > 1 else int(value * maxval)
+
     # compute allele coverage matrix
-    type_coverage, min_type_coverage = [], []
-    if min_alleles > 0:
+    type_coverage, min_type_coverage, min_type_conservation = [], [], []
+    if min_alleles > 0 or min_alle_conservation > 0:
         alleles = [''] + list(set(a for e in epitope_data for a in e['alleles']))
         type_coverage.append(np.array([[0] * len(alleles)] + [
             [int(a in e['alleles']) for a in alleles]
             for e in epitope_data
         ]))
-        count = int(min_alleles) if min_alleles > 1 else int(min_alleles * len(alleles))
-        min_type_coverage.append(count)
+        min_type_coverage.append(make_absolute(min_alleles, len(alleles)))
+        min_type_conservation.append(make_absolute(min_alle_conservation, len(alleles)))
 
     # compute protein coverage matrix
-    if min_proteins:
+    if min_proteins > 0 or min_prot_conservation > 0:
         proteins = [''] + list(set(p for e in epitope_data for p in e['proteins']))
         type_coverage.append(np.array([[0] * len(proteins)] + [
             [int(p in e['proteins']) for p in proteins]
             for e in epitope_data
         ]))
         # FIXME here we assume that the set of epitopes cover all proteins
-        count = int(min_proteins) if min_proteins > 1 else int(min_proteins * len(proteins))
-        min_type_coverage.append(count)
+        min_type_coverage.append(make_absolute(min_proteins, len(proteins)))
+        min_type_conservation.append(make_absolute(min_prot_conservation, len(proteins)))
 
     # must pad all matrices to the same size
     if len(type_coverage) > 1:
@@ -92,7 +95,7 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins):
             for arr in type_coverage
         ]
 
-    return type_coverage, min_type_coverage
+    return type_coverage, min_type_coverage, min_type_conservation
 
 
 def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_proteins=None):

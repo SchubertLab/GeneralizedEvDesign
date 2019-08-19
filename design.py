@@ -61,6 +61,7 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
     LOGGER.info('Loaded %d epitopes', len(epitope_data))
 
     # load edge cost
+    LOGGER.info('Loading overlaps...')
     vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
     epitopes = [''] + [b['epitope'] for b in epitope_data]
     epitope_index = {e: i for i, e in enumerate(epitopes)}

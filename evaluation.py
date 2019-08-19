@@ -166,11 +166,13 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
 
 @main.command()
 @click.argument('path-spec')
-@click.argument('output-aggregate')
+@click.option('--output-aggregate', '-a', help='Where to save the aggregate results')
 @click.option('--path-format', help='Regex that specifies which parts of the path go to which column of the result')
 @click.option('--summary-by', '-s', multiple=True, help='Log summarized evaluation metrics after grouping by these columns')
 @click.option('--output-summary', '-S', help='In addition to logging, save the summary to this file')
 def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summary):
+    ''' Aggregates several evaluations, optionally summarizing them.
+    '''
     fnames = glob.glob(path_spec)
     if not fnames:
         LOGGER.error('Path specification did not match any files!')
@@ -203,8 +205,13 @@ def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summa
     LOGGER.info('Parsed %d result files', len(dataframes))
 
     res_df = pd.concat(dataframes, ignore_index=True)
-    res_df.to_csv(output_aggregate, index=False)
-    LOGGER.info('Saved raw results to %s', output_aggregate)
+
+    for row in res_df.to_string().split('\n'):
+        LOGGER.info(row)
+
+    if output_aggregate:
+        res_df.to_csv(output_aggregate, index=False)
+        LOGGER.info('Saved raw results to %s', output_aggregate)
 
     if path_format:
         LOGGER.info('Summary of the results, grouped by %s', ', '.join(summary_by))

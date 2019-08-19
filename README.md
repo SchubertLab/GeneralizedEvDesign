@@ -56,7 +56,9 @@ Following are the commands required to prepare the data:
 0. (Only if using the Makefile) start by copying the input files in the work directory:
 
    ```
-   make init alleles=resources/alleles-small.csv proteins=resources/hiv1-bc-env-small.fasta
+   make init \
+       alleles=resources/alleles-small.csv \
+       proteins=resources/hiv1-bc-env-small.fasta
    ```
 
    By default, the work directory is `./dev/`, but it can be customized by using the argument `BASE_DIR=<dir>`. Note that if you do this now, you must include this argument for all subsequent `make` usages, too.
@@ -64,13 +66,17 @@ Following are the commands required to prepare the data:
 1. Extract the peptides and their coverage from the proteins you want to target:
 
    ```
-   make coverage proteins=resources/hiv1-bc-env-small.fasta  # customize options with COVERAGE_OPTS="..."
+   make coverage \
+       proteins=resources/hiv1-bc-env-small.fasta
+       # customize options with COVERAGE_OPTS="..."
    ```
 
    Or:
 
    ```
-   python data_preparation.py -v extract-peptides resources/hiv1-bc-env-small.fasta dev/hiv1-bc-env-small-coverage.csv
+   python data_preparation.py -v extract-peptides \
+       resources/hiv1-bc-env-small.fasta \
+       dev/hiv1-bc-env-small-coverage.csv
    ```
 
    Sample output:
@@ -87,13 +93,18 @@ Following are the commands required to prepare the data:
 2. Compute the binding affinities between these peptides and the HLA alleles of interest. These affinities are ic50 values scaled as follows: `affinity = 1 - log(ic50) / log(50000)`, so that 50, 500, 5000 and 50000 nM are scaled to 0.638, 0.426, 0.213 and 0.000 respectively.
 
    ```
-   make affinities alleles=resources/alleles-small.csv  # customize options with AFFINITIES_OPTS="..."
+   make affinities \
+       alleles=resources/alleles-small.csv
+       # customize options with AFFINITIES_OPTS="..."
    ```
    
    Or:
 
    ```
-   python data_preparation.py -v compute-affinities resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv
+   python data_preparation.py -v compute-affinities \
+       resources/alleles-small.csv \
+       dev/hiv1-bc-env-small-coverage.csv \
+       dev/hiv1-bc-env-small-affinities.csv
    ```
    
    Sample output:
@@ -118,7 +129,11 @@ Following are the commands required to prepare the data:
    Manual invocation via:
 
    ```
-   python data_preparation.py -v extract-epitopes resources/alleles-small.csv dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv dev/hiv1-bc-env-small-epitopes.csv
+   python data_preparation.py -v extract-epitopes \
+       resources/alleles-small.csv \
+       dev/hiv1-bc-env-small-coverage.csv \
+       dev/hiv1-bc-env-small-affinities.csv \
+       dev/hiv1-bc-env-small-epitopes.csv
    ```
    
    Sample output:
@@ -140,7 +155,9 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python data_preparation.py -v compute-cleavages dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-cleavages.csv
+   python data_preparation.py -v compute-cleavages \
+       dev/hiv1-bc-env-small-epitopes.csv \
+       dev/hiv1-bc-env-small-cleavages.csv
    ```
    
    Sample output:
@@ -163,17 +180,19 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python data_preparation.py -v compute-overlaps dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-overlaps.csv
+   python data_preparation.py -v compute-overlaps \
+       dev/hiv1-bc-env-small-epitopes.csv \
+       dev/hiv1-bc-env-small-overlaps.csv
    ```
 
    Sample output:
 
    | from      | to        | cost |
    | --------- | --------- | ---- |
-   | RWLWYIKIF | RWLWYIKIF |    9 |
-   | MLRHVVAKL | HFPNKTIIF |    9 |
    | YAPPISGYI | TYNNTYSTY |    8 |
    | SILGFWMLI | CLSNITGLL |    9 |
+   | APGVGAASQ | ASQDLAKHG |    6 |
+   | TTAAEGVGA | GAITISNTA |    7 |
    | SITHWLWYI | AYFYRSDVV |    9 |
    | ...       | ...       |  ... |
 
@@ -187,7 +206,10 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python design.py -v mosaic dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-overlaps.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv
+   python design.py -v mosaic \
+       dev/hiv1-bc-env-small-epitopes.csv \
+       dev/hiv1-bc-env-small-overlaps.csv \
+       dev/hiv1-bc-env-small-vaccine-mosaic.csv
    ```
 
  - String of Beads: use this generalized framework to design a string-of-beads vaccine
@@ -199,7 +221,10 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python design.py -v string-of-beads dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-cleavages dev/hiv1-bc-env-small-vaccine-string-of-beads.csv
+   python design.py -v string-of-beads \
+       dev/hiv1-bc-env-small-epitopes.csv \
+       dev/hiv1-bc-env-small-cleavages \
+       dev/hiv1-bc-env-small-vaccine-string-of-beads.csv
    ```
 
  - OptiTope: based on [1] and [2]
@@ -211,7 +236,11 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python design.py -v optitope dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-optitope.csv
+   python design.py -v optitope \
+       dev/hiv1-bc-env-small-coverage.csv \
+       dev/hiv1-bc-env-small-affinities.csv \
+       resources/alleles-small.csv \
+       dev/hiv1-bc-env-small-vaccine-optitope.csv
    ```
 
 - PopCover: based on [3]
@@ -223,19 +252,23 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-   python design.py -v popcover dev/hiv1-bc-env-small-coverage.csv dev/hiv1-bc-env-small-affinities.csv resources/alleles-small.csv dev/hiv1-bc-env-small-vaccine-popcover.csv
+   python design.py -v popcover \
+       dev/hiv1-bc-env-small-coverage.csv \
+       dev/hiv1-bc-env-small-affinities.csv \
+       resources/alleles-small.csv \
+       dev/hiv1-bc-env-small-vaccine-popcover.csv
    ```
 
-Sample output (same format for all methods):
+  Sample output (same format for all methods):
 
-| cocktail | index | epitope   |
-| -------- | ----- | --------- |
-|  0       |     0 | YQRWWIWSI |
-|  0       |     1 | YTDTIYWLL |
-|  0       |     2 | LLQYWSQEL |
-|  0       |     3 | YFPNKTMNF |
-|      ... |   ... | ...       |  
-
+  | cocktail | index | epitope   |
+  | -------- | ----- | --------- |
+  |  0       |     0 | YQRWWIWSI |
+  |  0       |     1 | YTDTIYWLL |
+  |  0       |     2 | LLQYWSQEL |
+  |  0       |     3 | YFPNKTMNF |
+  |      ... |   ... | ...       |  
+  
 ## Vaccine Evaluation
 Evaluation computes the following metrics: total immunogenicity, allele coverage, pathogen coverage, average epitope conservation and population coverage. The population coverage is also computed relative to the maximum theoretical coverage that can be achieved with the given alleles.
 
@@ -245,10 +278,16 @@ make mosaic-evaluation  # make mosaic is also valid
 
 Make can of course evaluate the vaccines produced by all methods via `make <method>-evaluation`, or simply `make <method>`.
 
-The full command is as follows, make sure to use the correct input file for the vaccine:
+The full command for the mosaic vaccine is as follows, make sure to use the correct input file for the vaccine:
 
 ```
-python evaluation.py -v resources/hiv1-bc-env-small.fasta dev/hiv1-bc-env-small-coverage.csv resources/alleles-small.csv dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv dev/hiv1-bc-env-small-evaluation-mosaic.csv
+python evaluation.py -v 
+    resources/hiv1-bc-env-small.fasta \
+    dev/hiv1-bc-env-small-coverage.csv \
+    resources/alleles-small.csv \
+    dev/hiv1-bc-env-small-epitopes.csv \
+    dev/hiv1-bc-env-small-vaccine-mosaic.csv \
+    dev/hiv1-bc-env-small-evaluation-mosaic.csv
 ```
 
 Sample output:

@@ -1,0 +1,1 @@
+COVERAGE_OPTS:=--max-edits 0 --top-n -1

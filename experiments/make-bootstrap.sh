@@ -1,11 +1,11 @@
 #!/bin/bash
 set -ex
 
-BASEDIR="experiments/comparison"
+BASEDIR="experiments"
 
-for i in {1..10}
+for i in {1..5}
 do
-    echo "Trial $i"
+    echo "Bootstrap $i"
     RESDIR="$BASEDIR/results/nef-300-$i"
     mkdir -p $RESDIR
     if [ ! -f "$RESDIR/made-proteins.fasta" ]; then
@@ -19,11 +19,4 @@ do
     else
         echo "Not overwriting alleles!"
     fi;
-
-    make CONFIG="$BASEDIR/config.mak" BASE_DIR=$RESDIR mosaic optitope popcover
 done
-
-python evaluation.py -v aggregate "$BASEDIR/results/nef-300-*/*-evaluation.csv" \
-    "$BASEDIR/results/aggregate-evaluation.csv" \
-    --path-format "$BASEDIR/results/nef-300-(?P<rep>\d+)/made-(?P<vax>[a-z0-9\-]+)-evaluation.csv" \
-    --summary-by vax --output-summary "$BASEDIR/results/evaluation-summary.csv"

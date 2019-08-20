@@ -75,11 +75,18 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
         edges[(i + 1, 0)] = 0
 
     with open(input_overlaps) as f:
-        for row in csv.DictReader(f):
-            i, j = epitope_index.get(row['from']), epitope_index.get(row['to'])
-            cost = float(row['cost'])
-            if i is not None and j is not None and i != j and cost <= 9 - min_overlap:
-                edges[(i, j)] = cost
+        header_checked = False
+        for row in f:
+            parts = row.strip().split(',')
+            if header_checked:
+                cost = float(parts[2])
+                if cost <= 9 - min_overlap and parts[0] != parts[1]:
+                    i, j = epitope_index.get(parts[0]), epitope_index.get(parts[1])
+                    edges[(i, j)] = cost
+            elif parts[0] != 'from' or parts[1] != 'to' or parts[2] != 'cost':
+                raise RuntimeError('Make sure the columns are ordered as follows: from,to,cost')
+            else:
+                header_checked = True
 
     # the overlap file does not contain pairs that do not overlap, so we have to add them manually if needed
     if min_overlap <= 0:

@@ -180,30 +180,19 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-<<<<<<< HEAD
    python data_preparation.py -v compute-overlaps \
        dev/hiv1-bc-env-small-epitopes.csv \
        dev/hiv1-bc-env-small-overlaps.csv
-=======
-   python data_preparation.py -v compute-overlaps dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-overlaps.csv
->>>>>>> b0d82492f916e3cf95d0219d8828ae4d27632dac
    ```
 
    Sample output:
 
    | from      | to        | cost |
    | --------- | --------- | ---- |
-<<<<<<< HEAD
    | YAPPISGYI | TYNNTYSTY |    8 |
    | SILGFWMLI | CLSNITGLL |    9 |
    | APGVGAASQ | ASQDLAKHG |    6 |
    | TTAAEGVGA | GAITISNTA |    7 |
-=======
-   | RWLWYIKIF | RWLWYIKIF |    9 |
-   | MLRHVVAKL | HFPNKTIIF |    9 |
-   | YAPPISGYI | TYNNTYSTY |    8 |
-   | SILGFWMLI | CLSNITGLL |    9 |
->>>>>>> b0d82492f916e3cf95d0219d8828ae4d27632dac
    | SITHWLWYI | AYFYRSDVV |    9 |
    | ...       | ...       |  ... |
 
@@ -217,14 +206,10 @@ Following are the commands required to prepare the data:
    Or:
 
    ```
-<<<<<<< HEAD
    python design.py -v mosaic \
        dev/hiv1-bc-env-small-epitopes.csv \
        dev/hiv1-bc-env-small-overlaps.csv \
        dev/hiv1-bc-env-small-vaccine-mosaic.csv
-=======
-   python design.py -v mosaic dev/hiv1-bc-env-small-epitopes.csv dev/hiv1-bc-env-small-overlaps.csv dev/hiv1-bc-env-small-vaccine-mosaic.csv
->>>>>>> b0d82492f916e3cf95d0219d8828ae4d27632dac
    ```
 
  - String of Beads: use this generalized framework to design a string-of-beads vaccine

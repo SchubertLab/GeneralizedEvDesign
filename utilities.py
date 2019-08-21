@@ -60,8 +60,8 @@ class Trie:
 
 
 def compute_coverage_matrix(epitope_data, min_alleles, min_proteins, min_prot_conservation, min_alle_conservation):
-    def make_absolute(value, maxval):
-        return int(value) if value > 1 else int(value * maxval)
+    def make_absolute_and_append(value, maxval, lst):
+        lst.append(int(value) if value > 1 else int(value * maxval))
 
     # compute allele coverage matrix
     type_coverage, min_type_coverage, min_type_conservation = [], [], []
@@ -71,8 +71,8 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins, min_prot_co
             [int(a in e['alleles']) for a in alleles]
             for e in epitope_data
         ]))
-        min_type_coverage.append(make_absolute(min_alleles, len(alleles)))
-        min_type_conservation.append(make_absolute(min_alle_conservation, len(alleles)))
+        make_absolute_and_append(min_alleles, len(alleles), min_type_coverage)
+        make_absolute_and_append(min_alle_conservation, len(alleles), min_type_conservation)
 
     # compute protein coverage matrix
     if min_proteins > 0 or min_prot_conservation > 0:
@@ -82,8 +82,8 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins, min_prot_co
             for e in epitope_data
         ]))
         # FIXME here we assume that the set of epitopes cover all proteins
-        min_type_coverage.append(make_absolute(min_proteins, len(proteins)))
-        min_type_conservation.append(make_absolute(min_prot_conservation, len(proteins)))
+        make_absolute_and_append(min_proteins, len(proteins), min_type_coverage)
+        make_absolute_and_append(min_prot_conservation, len(proteins), min_type_conservation)
 
     # must pad all matrices to the same size
     if len(type_coverage) > 1:

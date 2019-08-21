@@ -39,7 +39,7 @@ from pyomo.opt import SolverFactory, TerminationCondition
 class TeamOrienteeringIlp:
 
     def __init__(self, num_teams, vertex_reward, edge_cost, max_edge_cost, max_vertices,
-                 type_coverage=None, min_type_coverage=None, min_type_conservation=None,
+                 type_coverage=None, min_type_coverage=None, min_avg_type_conservation=None,
                  lazy_subtour_elimination=False, solver='gurobi_persistent'):
 
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -60,7 +60,7 @@ class TeamOrienteeringIlp:
         self._max_vertices = max_vertices
         self._type_coverage = type_coverage
         self._min_type_coverage = min_type_coverage
-        self._min_type_conservation = min_type_conservation
+        self._min_avg_type_conservation = min_avg_type_conservation
 
         if isinstance(edge_cost, dict):
             # in this case, the edge costs is a dictionary (u, v) -> cost
@@ -173,10 +173,10 @@ class TeamOrienteeringIlp:
                 model.u[u, t] - model.u[v, t] + 1 <= (len(model.Nodes) - 1) * (1 - model.x[(u, v), t])
             ))
 
-        if self._type_coverage and (self._min_type_coverage or self._min_type_conservation):
+        if self._type_coverage and (self._min_type_coverage or self._min_avg_type_conservation):
             assert (not self._min_type_coverage
-                or not self._min_type_conservation
-                or len(self._min_type_conservation) == len(self._min_type_coverage))
+                or not self._min_avg_type_conservation
+                or len(self._min_avg_type_conservation) == len(self._min_type_coverage))
 
             self.logger.debug('Adding coverage information...')
             # type_coverage is a binary tensor s.t. C_ijk = 1 iff vertex j covers option k of type i
@@ -212,24 +212,21 @@ class TeamOrienteeringIlp:
                     ), None)
                 )
 
-            if self._min_type_conservation:
+            if self._min_avg_type_conservation:
                 # every vertex must cover a minimum number of different options
-                self.logger.debug('Adding minimum conservation for each vertex...')
+                self.logger.debug('Adding average vertex conservation...')
                 self._model.MinOptionConservation = aml.Param(
-                    self._model.Types, initialize=lambda model, typ: self._min_type_conservation[typ]
+                    self._model.Types, initialize=lambda model, typ: self._min_avg_type_conservation[typ]
                 )
-
-                def min_option_conservation_constraint_rule(model, node, team, typ):
-                    ub = (
-                        sum(model.TypeCoverage[typ, node, o] for o in model.Options)
-                        - model.MinOptionConservation[typ] + 1
-                    ) if node > 0 else 1
-                    return (None, model.y[node, team], max(0, ub))
-
                 self._model.MinOptionConservationConstraint = aml.Constraint(
-                    self._model.Nodes * self._model.Teams * self._model.Types,
-                    rule=min_option_conservation_constraint_rule
-                )
+                    self._model.Types, rule=lambda model, typ: sum(
+                    model.y[n, t] * (
+                        sum(model.TypeCoverage[typ, n, o] for o in model.Options)
+                        - model.MinOptionConservation[typ]
+                    )
+                    for t in model.Teams
+                    for n in model.Nodes
+                ) >= 0)
         else:
             self.logger.info('No coverage enforced')
 

@@ -314,7 +314,7 @@ def compute_overlaps_process(epitope, other_epitopes):
     all_costs = []
     for other in other_epitopes:
         cost = utilities.compute_suffix_prefix_cost(epitope, other)
-        if cost < 9:
+        if 0 < cost < 9:
             all_costs.append((epitope, other, cost))
     return all_costs
 
@@ -334,16 +334,21 @@ def compute_overlaps(input_epitopes, output_overlaps, processes):
         (e, epitopes) for e in epitopes
     ), processes)
 
-    with open(output_overlaps, 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(('from', 'to', 'cost'))
-        for i, res in enumerate(results):
-            for ep_to, ep_from, cost in res:
-                writer.writerow((ep_to, ep_from, cost))
+    by_cost = defaultdict(list)
+    for i, res in enumerate(results):
+        for epi_from, epi_to, cost in res:
+            by_cost[cost].append((epi_from, epi_to))
 
-            if is_percent_barrier(i, len(epitopes), 1):
-                LOGGER.debug('Processed %d overlap pairs (%.2f%%)...',
-                            len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
+        if is_percent_barrier(i, len(epitopes), 1):
+            LOGGER.debug('Processed %d overlap pairs (%.2f%%)...',
+                        len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
+
+    LOGGER.info('Writing to file')
+    with open(output_overlaps, 'w') as f:
+        f.write('from,to,cost\n')
+        for ov in sorted(by_cost.keys()):
+            for epi_from, epi_to in by_cost[ov]:
+                f.write('%s,%s,%d\n' % (epi_from, epi_to, ov))
 
 
 if __name__ == '__main__':

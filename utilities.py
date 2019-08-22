@@ -264,3 +264,54 @@ def parallel_apply(apply_fn, task_generator, processes, preload=64, timeout=9999
     else:
         pool.close()
 
+
+def load_overlaps(input_overlaps, min_overlap):
+    # load overlaps
+    # we don't use the csv module to be much quicker, but less flexible:
+    # we assume overlaps are sorted by cost and columns are ordered as from,to,cost
+    current_cost = None
+    with open(input_overlaps) as f:
+        header_checked = False
+        for row in f:
+            parts = row.strip().split(',')
+            if header_checked:
+                cost = float(parts[2])
+                if current_cost is not None and cost < current_cost:
+                    raise RuntimeError('overlap file not sorted! sort it by cost')
+                elif cost > 9 - min_overlap:
+                    break
+                elif parts[0] != parts[1]:
+                    yield parts[0], parts[1], cost
+                current_cost = cost
+            elif parts[0] != 'from' or parts[1] != 'to' or parts[2] != 'cost':
+                raise RuntimeError('Make sure the columns are ordered as follows: from,to,cost')
+            else:
+                header_checked = True
+
+
+def load_edges_from_overlaps(input_overlaps, min_overlap, epitopes):
+    if epitopes[0] != '':
+        epitopes = [''] + epitopes
+
+    epitope_index = {e: i for i, e in enumerate(epitopes)}
+
+    # create edges to/from the dummy vertex
+    edges = {}
+    for e, i in epitope_index.iteritems():
+        edges[(0, i + 1)] = len(e)
+        edges[(i + 1, 0)] = 0
+
+    for epi_from, epi_to, cost in load_overlaps(input_overlaps, min_overlap):
+        i, j = epitope_index.get(epi_from), epitope_index.get(epi_to)
+        if i is not None and j is not None:
+            edges[(i, j)] = cost
+
+    # the overlap file does not contain pairs that do not overlap
+    # so we have to add them manually if needed
+    if min_overlap <= 0:
+        for i in range(1, len(epitope_index)):
+            for j in range(1, len(epitope_index)):
+                if i != j and (i, j) not in edges:
+                    edges[(i, j)] = 9
+
+    return edges

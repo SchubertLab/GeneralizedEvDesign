@@ -66,39 +66,14 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
     # load edge cost
     LOGGER.info('Loading overlaps...')
     vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
-    epitopes = [''] + [b['epitope'] for b in epitope_data]
-    epitope_index = {e: i for i, e in enumerate(epitopes)}
+    edges = utilities.load_edges_from_overlaps(input_overlaps, min_overlap, [
+        b['epitope'] for b in epitope_data
+    ])
 
-    edges = {}
-    for i, e in enumerate(epitope_data):
-        edges[(0, i + 1)] = len(e['epitope'])
-        edges[(i + 1, 0)] = 0
-
-    with open(input_overlaps) as f:
-        header_checked = False
-        for row in f:
-            parts = row.strip().split(',')
-            if header_checked:
-                cost = float(parts[2])
-                if cost <= 9 - min_overlap and parts[0] != parts[1]:
-                    i, j = epitope_index.get(parts[0]), epitope_index.get(parts[1])
-                    if i is not None and j is not None:
-                        edges[(i, j)] = cost
-            elif parts[0] != 'from' or parts[1] != 'to' or parts[2] != 'cost':
-                raise RuntimeError('Make sure the columns are ordered as follows: from,to,cost')
-            else:
-                header_checked = True
-
-    # the overlap file does not contain pairs that do not overlap, so we have to add them manually if needed
-    if min_overlap <= 0:
-        for i in range(1, len(epitopes)):
-            for j in range(1, len(epitopes)):
-                if i != j and (i, j) not in edges:
-                    edges[(i, j)] = 9
-
-    LOGGER.info('Kept %d edges (from %d)', len(edges), len(epitopes) * (len(epitopes) - 1))
+    LOGGER.info('Kept %d edges (from %d)', len(edges), len(epitope_data) * (len(epitope_data) + 1))
 
     # compute hla and protein coverage
+    LOGGER.info('Computing coverage matrix...')
     type_coverage, min_type_coverage, min_avg_type_conservation = utilities.compute_coverage_matrix(
         epitope_data, min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation
     )
@@ -119,7 +94,11 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
             solver.update_max_vertices(ep)
             solver.update_max_edge_cost(am)
 
-            result = solver.solve()
+            try:
+                result = solver.solve()
+            except RuntimeError:
+                LOGGER.info('Problem was found infeasible with %d epitopes and %d aminoacids', ep, am)
+                continue
 
             # print info and save
             fname = output_vaccine.format(a=am, e=ep)

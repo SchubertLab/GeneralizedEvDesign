@@ -14,5 +14,6 @@ for dir in experiments/results/nef-300-*; do
         --pareto-steps 11 \
         --max-aminoacids 0 --max-epitopes 10 \
         --min-alleles 0 --min-proteins 0 \
+        --top-immunogen 1500 \
         --cocktail 1 --verbose
 done

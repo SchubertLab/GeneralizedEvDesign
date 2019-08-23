@@ -87,9 +87,12 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
     )
     solver.build_model()
 
-    # sort ascending so that the previous solution is still feasible
-    for ep in sorted(map(int, max_epitopes)):
-        for am in sorted(map(int, max_aminoacids)):
+    # preserve user sorting
+    # initializing a larger problem with the optimal (and still feasible) solution of a smaller one
+    # usually makes it much faster to solve. however, too small problems could be infeasible, in which
+    # case it usually takes a very long time to prove them so
+    for ep in map(int, max_epitopes):
+        for am in map(int, max_aminoacids):
             LOGGER.info('Solving with at most %d epitopes and most %d aminoacids', ep, am)
             solver.update_max_vertices(ep)
             solver.update_max_edge_cost(am)

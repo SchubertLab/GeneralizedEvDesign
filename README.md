@@ -185,16 +185,16 @@ Following are the commands required to prepare the data:
        dev/hiv1-bc-env-small-overlaps.csv
    ```
 
-   Sample output:
+Sample output:
 
-   | from      | to        | cost |
-   | --------- | --------- | ---- |
-   | YAPPISGYI | TYNNTYSTY |    8 |
-   | SILGFWMLI | CLSNITGLL |    9 |
-   | APGVGAASQ | ASQDLAKHG |    6 |
-   | TTAAEGVGA | GAITISNTA |    7 |
-   | SITHWLWYI | AYFYRSDVV |    9 |
-   | ...       | ...       |  ... |
+| from      | to        | cost |
+| --------- | --------- | ---- |
+| YAPPISGYI | TYNNTYSTY |    8 |
+| SILGFWMLI | CLSNITGLL |    9 |
+| APGVGAASQ | ASQDLAKHG |    6 |
+| TTAAEGVGA | GAITISNTA |    7 |
+| SITHWLWYI | AYFYRSDVV |    9 |
+| ...       | ...       |  ... |
 
 ## Vaccine Design
  - Mosaic: use this generalized framework to design a mosaic vaccine
@@ -295,6 +295,10 @@ Sample output:
 | norm_prot_coverage | prot_coverage | pop_coverage | conservation | rel_pop_coverage | immunogen | max_pop_coverage |
 | ------------------ | ------------- | ------------ | ------------ | ---------------- | --------- | ---------------- |
 |               0.75 |            15 |       0.524… |       0.105… |           0.780… |    1.960… |           0.671… |
+
+# Experiments
+The experiments folder contains several scripts and inputs to design vaccines under various settings.
+You must first run `make-bootstrap.sh` to create five random subsets of 300 sequences, which will be used by the other scripts.
 
 # References
 [1] Toussaint NC, D ̈onnes P, Kohlbacher O. A mathematical framework for the selection of an optimal set of peptides forepitope-based vaccines.PLoS Comput Biol2008:4: e1000246.17.

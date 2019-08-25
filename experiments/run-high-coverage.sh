@@ -28,12 +28,12 @@ for dir in experiments/results/nef-300-*; do
         STROBE_VACCINE="${dir}/strobe-high-coverage.csv" \
         STROBE_EVAL="${dir}/strobe-val-high-coverage-evaluation.csv"
     
-    #make string-of-beads \
-    #    BASE_DIR="${dir%/}" \
-    #    CONFIG="experiments/base-config.mak" \
-    #    CLEAVAGES_OPTS="--top-proteins 500 --top-alleles 500 --top-immunogen 500 --penalty 0.1 --cleavage-window 5 --cleavage-model PCM" \
-    #    STROBE_OPTS="--max-epitopes 10 --max-aminoacids 0 --cocktail 1" \
-    #    STROBE_NAME="strobe-high-ig-high-coverage"
+    make string-of-beads \
+        BASE_DIR="${dir%/}" \
+        CONFIG="experiments/base-config.mak" \
+        CLEAVAGES_OPTS="--top-proteins 500 --top-alleles 500 --top-immunogen 500 --penalty 0.1 --cleavage-window 5 --cleavage-model PCM" \
+        STROBE_OPTS="--max-epitopes 10 --max-aminoacids 0 --cocktail 1" \
+        STROBE_NAME="strobe-ig-high-coverage"
 done
 
 python evaluation.py -v aggregate \

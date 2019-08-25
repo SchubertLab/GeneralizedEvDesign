@@ -41,6 +41,65 @@ def main(verbose, log_file):
     LOGGER = utilities.init_logging(verbose, log_file, log_append=False)
 
 
+def compute_allele_coverage(alleles, allele_data):
+    prob_locus_covered = {'HLA-A': 0.0, 'HLA-B': 0.0, 'HLA-C': 0.0}
+    for allele in set(alleles):
+        prob_locus_covered[allele[:5]
+                            ] += allele_data[allele]['frequency'] / 100.0
+    coverage = 1 - reduce(lambda p, q: p * q,
+                            ((1 - p)**2 for p in prob_locus_covered.values()))
+    return coverage
+
+
+def evaluate_epitopes(epitopes, epitope_data, allele_data, protein_count):
+    # compute immunogenicity
+    immunogen = sum(epitope_data[epi]['immunogen'] for epi in epitopes)
+
+    # compute population coverage
+    max_coverage = compute_allele_coverage(allele_data.keys(), allele_data)
+
+    vaccine_alleles = set([
+        allele
+        for epi in epitopes
+        for allele in epitope_data[epi]['alleles']
+    ])
+    vaccine_coverage = compute_allele_coverage(vaccine_alleles, allele_data)
+
+    # compute pathogen coverage
+    proteins_covered = reduce(lambda s, t: s | t, (
+        set(epitope_data[epi]['proteins'])
+        for epi in epitopes
+    ))
+    
+    # compute epitope conservation
+    conservations = [
+        len(epitope_data[epi]['proteins'])
+        for epi in epitopes
+    ]
+    epitope_conservation = sum(conservations) / len(conservations) / protein_count
+
+    stats = {
+        'immunogen': immunogen,
+        'alleles': len(vaccine_alleles),
+        'pop_coverage': vaccine_coverage,
+        'max_pop_coverage': max_coverage,
+        'rel_pop_coverage': vaccine_coverage / max_coverage,
+        'prot_coverage': len(proteins_covered),
+        'norm_prot_coverage': len(proteins_covered) / protein_count,
+        'conservation': epitope_conservation,
+    }
+    LOGGER.info('The epitopes have immunogenicity %.3f', stats['immunogen'])
+    LOGGER.info('The epitopes cover %d alleles', stats['alleles'])
+    LOGGER.info('The maximum population coverage is %.2f%%', 100 * stats['max_pop_coverage'])
+    LOGGER.info('The epitopes cover %.2f%% of the population (%.2f%% of the maximum)',
+                100 * stats['pop_coverage'], 100 * stats['rel_pop_coverage'])
+    LOGGER.info('The epitopes cover %d proteins (%.2f%% of the total)', stats['prot_coverage'],
+                100 * stats['norm_prot_coverage'])
+    LOGGER.info('The average epitope conservation is %.2f%%', 100 * stats['conservation'])
+
+    return stats
+
+
 @main.command()
 @click.argument('input-sequences', type=click.Path())
 @click.argument('input-peptides', type=click.Path())
@@ -77,7 +136,7 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
     LOGGER.info('Loaded %d peptides with coverage', len(peptides))
 
     # load epitopes (also fill peptides since some design methods do not use epitopes)
-    epitopes = {
+    epitope_data = {
         pep: {'immunogen': 0.0, 'alleles': [], 'proteins': prots}
         for pep, prots in peptides.iteritems()
     }
@@ -87,77 +146,26 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
             row['alleles'] = row['alleles'].split(';')
             row['proteins'] = row['proteins'].split(';')
             if row['immunogen'] > 0:
-                epitopes[row['epitope']] = row
-    LOGGER.info('Loaded %d epitopes', len(epitopes))
+                epitope_data[row['epitope']] = row
+    LOGGER.info('Loaded %d epitopes', len(epitope_data))
 
     # load sequences
     proteins = FileReader.read_fasta(input_sequences, in_type=Protein)
     LOGGER.info('Loaded %d proteins', len(proteins))
 
-    # print vaccine
+    # print stats for each mosaic
     for i, mosaic in enumerate(cocktail):
-        LOGGER.info('Mosaic #%d: %s', i + 1, ', '.join(mosaic))\
+        LOGGER.info('---')
+        LOGGER.info('Mosaic #%d - %d epitopes', i + 1, len(mosaic))
+        for epi in mosaic:
+            LOGGER.info('    %s', epi)
+        evaluate_epitopes(mosaic, epitope_data, allele_data, len(proteins))
 
-    # compute immunogenicity
-    immunogen = sum(
-        epitopes[epitope]['immunogen']
-        for mosaic in cocktail
-        for epitope in mosaic
-    )
-    LOGGER.info('Vaccine has immunogenicity %.3f', immunogen)
-
-    # compute population coverage
-    def compute_allele_coverage(alleles):
-        prob_locus_covered = {'HLA-A': 0.0, 'HLA-B': 0.0, 'HLA-C': 0.0}
-        for allele in set(alleles):
-            prob_locus_covered[allele[:5]
-                               ] += allele_data[allele]['frequency'] / 100.0
-        coverage = 1 - reduce(lambda p, q: p * q,
-                              ((1 - p)**2 for p in prob_locus_covered.values()))
-        return coverage
-
-    max_coverage = compute_allele_coverage(allele_data.keys())
-    LOGGER.info('The given set of alleles covers %.2f%% of the population', 100 * max_coverage)
-
-    vaccine_alleles = set([
-        allele
-        for mosaic in cocktail
-        for epitope in mosaic
-        for allele in epitopes[epitope]['alleles']
-    ])
-    LOGGER.info('The vaccine covers %d different alleles', len(vaccine_alleles))
-    vaccine_coverage = compute_allele_coverage(vaccine_alleles)
-    LOGGER.info('The vaccine covers %.2f%% of the population (%.2f%% of the maximum theoretical coverage)',
-                100 * vaccine_coverage, 100 * vaccine_coverage / max_coverage)
-
-    # compute pathogen coverage
-    proteins_covered = reduce(lambda s, t: s | t, (
-        set(epitopes[epitope]['proteins'])
-        for mosaic in cocktail
-        for epitope in mosaic
-    ))
-    LOGGER.info('Vaccine covers %d proteins (%.2f%% of the total)',
-                len(proteins_covered), 100 * len(proteins_covered) / len(proteins))
-    
-    # compute epitope conservation
-    conservations = [
-        len(epitopes[epitope]['proteins'])
-        for mosaic in cocktail
-        for epitope in mosaic
-    ]
-    epitope_conservation = sum(conservations) / len(conservations) / len(proteins)
-    LOGGER.info('Average epitope conservation: %.2f%%', 100 * epitope_conservation)
-
-    vaccine_stats = {
-        'immunogen': immunogen,
-        'alleles': len(vaccine_alleles),
-        'pop_coverage': vaccine_coverage,
-        'max_pop_coverage': max_coverage,
-        'rel_pop_coverage': vaccine_coverage / max_coverage,
-        'prot_coverage': len(proteins_covered),
-        'norm_prot_coverage': len(proteins_covered) / len(proteins),
-        'conservation': epitope_conservation,
-    }
+    # write csv
+    LOGGER.info('---')
+    vaccine_stats = evaluate_epitopes([
+        epi for mosaic in cocktail for epi in mosaic
+    ], epitope_data, allele_data, len(proteins))
     with open(output_summary, 'w') as f:
         writer = csv.DictWriter(f, vaccine_stats.keys())
         writer.writeheader()

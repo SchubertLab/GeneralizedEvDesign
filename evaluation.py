@@ -79,6 +79,7 @@ def evaluate_epitopes(epitopes, epitope_data, allele_data, protein_count):
     epitope_conservation = sum(conservations) / len(conservations) / protein_count
 
     stats = {
+        'num_epitopes': len(epitopes),
         'immunogen': immunogen,
         'alleles': len(vaccine_alleles),
         'pop_coverage': vaccine_coverage,
@@ -88,6 +89,7 @@ def evaluate_epitopes(epitopes, epitope_data, allele_data, protein_count):
         'norm_prot_coverage': len(proteins_covered) / protein_count,
         'conservation': epitope_conservation,
     }
+    LOGGER.info('The polypeptide has %d epitopes', stats['num_epitopes'])
     LOGGER.info('The epitopes have immunogenicity %.3f', stats['immunogen'])
     LOGGER.info('The epitopes cover %d alleles', stats['alleles'])
     LOGGER.info('The maximum population coverage is %.2f%%', 100 * stats['max_pop_coverage'])

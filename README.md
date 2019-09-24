@@ -207,6 +207,8 @@ Sample output:
 
    ```
    python design.py -v mosaic \
+       resources/hiv1-bc-env-small.fasta \
+       resources/alleles-small.csv \
        dev/hiv1-bc-env-small-epitopes.csv \
        dev/hiv1-bc-env-small-overlaps.csv \
        dev/hiv1-bc-env-small-vaccine-mosaic.csv
@@ -222,6 +224,8 @@ Sample output:
 
    ```
    python design.py -v string-of-beads \
+       resources/hiv1-bc-env-small.fasta \
+       resources/alleles-small.csv \
        dev/hiv1-bc-env-small-epitopes.csv \
        dev/hiv1-bc-env-small-cleavages \
        dev/hiv1-bc-env-small-vaccine-string-of-beads.csv

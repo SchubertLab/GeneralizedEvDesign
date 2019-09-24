@@ -40,6 +40,8 @@ def main(verbose, log_file):
 
 
 @main.command()
+@click.argument('input-proteins', type=click.Path())
+@click.argument('input-alleles', type=click.Path())
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('input-overlaps', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
@@ -55,9 +57,18 @@ def main(verbose, log_file):
 @click.option('--min-avg-alle-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many alleles')
 @click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
 @click.option('--min-overlap', '-o', default=0, help='Minimum epitope overlap')
-def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoacids,
+def mosaic(input_proteins, input_alleles, input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoacids,
            max_epitopes, greedy_subtour, top_proteins, top_immunogen, top_alleles, min_alleles,
            min_proteins, min_overlap, min_avg_prot_conservation, min_avg_alle_conservation):
+
+    # load proteins
+    LOGGER.info('Reading sequences...')
+    proteins = FileReader.read_fasta(input_proteins, in_type=Protein)
+    LOGGER.info('%d proteins read', len(proteins))
+
+    # load alleles
+    alleles = [Allele(a) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
+    LOGGER.info('Loaded %d alleles', len(alleles))
 
     # load epitopes
     epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
@@ -75,7 +86,8 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
     # compute hla and protein coverage
     LOGGER.info('Computing coverage matrix...')
     type_coverage, min_type_coverage, min_avg_type_conservation = utilities.compute_coverage_matrix(
-        epitope_data, min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation
+        epitope_data, min_alleles, min_proteins, min_avg_prot_conservation,
+        min_avg_alle_conservation, len(proteins), len(alleles)
     )
 
     # find optimal design
@@ -124,6 +136,8 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
 
 
 @main.command()
+@click.argument('input-proteins', type=click.Path())
+@click.argument('input-alleles', type=click.Path())
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('input-cleavages', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
@@ -135,9 +149,19 @@ def mosaic(input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoac
 @click.option('--min-avg-prot-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many proteins')
 @click.option('--min-avg-alle-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many alleles')
 @click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
-def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, greedy_subtour, max_aminoacids,
-                    max_epitopes, min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation):
+def string_of_beads(input_proteins, input_alleles, input_epitopes, input_cleavages, output_vaccine,
+                    cocktail, greedy_subtour, max_aminoacids, max_epitopes, min_alleles, min_proteins,
+                    min_avg_prot_conservation, min_avg_alle_conservation):
     program_start_time = time.time()
+
+    # load proteins
+    LOGGER.info('Reading sequences...')
+    proteins = FileReader.read_fasta(input_proteins, in_type=Protein)
+    LOGGER.info('%d proteins read', len(proteins))
+
+    # load alleles
+    alleles = [Allele(a) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
+    LOGGER.info('Loaded %d alleles', len(alleles))
 
     # load epitopes
     epitopes = utilities.load_epitopes(input_epitopes)
@@ -167,7 +191,7 @@ def string_of_beads(input_epitopes, input_cleavages, output_vaccine, cocktail, g
 
     type_coverage, min_type_coverage, min_avg_type_conservation = utilities.compute_coverage_matrix([
         epitopes[e] for e in vertex_to_epitope[1:]
-    ], min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation)
+    ], min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation, len(proteins), len(alleles))
 
     # find optimal design
     solver_build_time = time.time()

@@ -2,7 +2,7 @@
 set -ex
 
 for dir in experiments/results/nef-300-*; do
-    for aminoacids in 45 90 180 360 720
+    for aminoacids in 27 45 72 90 135 180 360 720
     do
         for overlap in 4 8
         do

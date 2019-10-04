@@ -57,46 +57,9 @@ def main(verbose, log_file):
 @click.option('--min-avg-alle-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many alleles')
 @click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
 @click.option('--min-overlap', '-o', default=0, help='Minimum epitope overlap')
-def mosaic(input_proteins, input_alleles, input_epitopes, input_overlaps, output_vaccine, cocktail, max_aminoacids,
-           max_epitopes, greedy_subtour, top_proteins, top_immunogen, top_alleles, min_alleles,
-           min_proteins, min_overlap, min_avg_prot_conservation, min_avg_alle_conservation):
-
-    # load proteins
-    LOGGER.info('Reading sequences...')
-    proteins = FileReader.read_fasta(input_proteins, in_type=Protein)
-    LOGGER.info('%d proteins read', len(proteins))
-
-    # load alleles
-    alleles = [Allele(a) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
-    LOGGER.info('Loaded %d alleles', len(alleles))
-
-    # load epitopes
-    epitope_data = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
-    LOGGER.info('Loaded %d epitopes', len(epitope_data))
-
-    # load edge cost
-    LOGGER.info('Loading overlaps...')
-    vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
-    edges = utilities.load_edges_from_overlaps(input_overlaps, min_overlap, [
-        b['epitope'] for b in epitope_data
-    ])
-
-    LOGGER.info('Kept %d edges (from %d)', len(edges), len(epitope_data) * (len(epitope_data) + 1))
-
-    # compute hla and protein coverage
-    LOGGER.info('Computing coverage matrix...')
-    type_coverage, min_type_coverage, min_avg_type_conservation = utilities.compute_coverage_matrix(
-        epitope_data, min_alleles, min_proteins, min_avg_prot_conservation,
-        min_avg_alle_conservation, len(proteins), len(alleles)
-    )
-
-    # find optimal design
-    solver = TeamOrienteeringIlp(
-        num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edges,
-        max_edge_cost=0, max_vertices=0, lazy_subtour_elimination=not greedy_subtour,
-        type_coverage=type_coverage, min_type_coverage=min_type_coverage,
-        min_avg_type_conservation=min_avg_type_conservation,
-    )
+def mosaic(max_epitopes, max_aminoacids, output_vaccine, **kwargs):
+    # get model instance
+    solver, data = utilities.get_mosaic_solver_instance(LOGGER, **kwargs)
     solver.build_model()
 
     # preserve user sorting
@@ -125,12 +88,12 @@ def mosaic(input_proteins, input_alleles, input_epitopes, input_overlaps, output
                 for i, mosaic in enumerate(result):
                     LOGGER.info('Mosaic #%d', i + 1)
                     for j, (_, vertex) in enumerate(mosaic[:-1]):
-                        writer.writerow((i, j, epitope_data[vertex - 1]['epitope']))
-                        total_ig += epitope_data[vertex - 1]['immunogen']
+                        writer.writerow((i, j, data['epitope_data'][vertex - 1]['epitope']))
+                        total_ig += data['epitope_data'][vertex - 1]['immunogen']
                         LOGGER.info(
                             '    %s - IG: %.2f',
-                            epitope_data[vertex - 1]['epitope'],
-                            epitope_data[vertex - 1]['immunogen']
+                            data['epitope_data'][vertex - 1]['epitope'],
+                            data['epitope_data'][vertex - 1]['immunogen']
                         )
                 LOGGER.info('Total immunogenicity: %.3f', total_ig)
 
@@ -269,7 +232,7 @@ def optitope(input_affinities, input_peptides, input_alleles, output_vaccine, ep
             epitope_immunog = sum(model.instance.p[a] * model.instance.i[epitope, a]
                                   for a in model.instance.A)
             total_ig += epitope_immunog
-            LOGGER.info('    %s - IG: %.2f', epitope, epitope_immunog)
+            LOGGER.info('    %s -logger.2f', epitope, epitope_immunog)
         LOGGER.info('Total immunogenicity: %.2f', total_ig)
 
 

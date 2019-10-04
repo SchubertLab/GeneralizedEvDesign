@@ -5,6 +5,7 @@ import pandas as pd
 from Fred2.Core import Allele, Peptide, Protein
 from Fred2.IO import FileReader
 from Fred2.EpitopePrediction import EpitopePredictionResult
+from team_orienteering_ilp import TeamOrienteeringIlp
 import csv
 
 
@@ -83,7 +84,6 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins,
             [int(p in e['proteins']) for p in proteins]
             for e in epitope_data
         ]))
-        # FIXME here we assume that the set of epitopes covers all proteins
         make_absolute_and_append(min_proteins, num_proteins, min_type_coverage)
         make_absolute_and_append(min_prot_conservation, num_proteins, min_type_conservation)
 
@@ -317,3 +317,66 @@ def load_edges_from_overlaps(input_overlaps, min_overlap, epitopes):
                     edges[(i, j)] = 9
 
     return edges
+
+
+def get_mosaic_solver_instance(logger, input_proteins, input_alleles, input_epitopes, input_overlaps, **kwargs):
+    top_immunogen = kwargs.pop('top_immunogen')
+    top_alleles = kwargs.pop('top_alleles')
+    top_proteins = kwargs.pop('top_proteins')
+    min_overlap = kwargs.get('min_overlap', 0)
+    cocktail = kwargs.get('cocktail', 1)
+    greedy_subtour = kwargs.get('greedy_subtour')
+    max_epitopes = kwargs.get('max_epitopes')
+    max_aminoacids = kwargs.get('max_aminoacids')
+    min_alleles = kwargs.get('min_alleles', 0)
+    min_proteins = kwargs.get('min_proteins', 0)
+    min_avg_prot_conservation = kwargs.get('min_avg_prot_conservation', 0)
+    min_avg_alle_conservation = kwargs.get('min_avg_alle_conservation', 0)
+
+    # load proteins
+    logger.info('Reading sequences...')
+    proteins = FileReader.read_fasta(input_proteins, in_type=Protein)
+    logger.info('%d proteins read', len(proteins))
+
+    # load alleles
+    alleles = [Allele(a) for a in get_alleles_and_thresholds(input_alleles).index]
+    logger.info('Loaded %d alleles', len(alleles))
+
+    # load epitopes
+    epitope_data = load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
+    logger.info('Loaded %d epitopes', len(epitope_data))
+
+    # load edge cost
+    logger.info('Loading overlaps...')
+    vertex_rewards = [0] + [b['immunogen'] for b in epitope_data]
+    edges = load_edges_from_overlaps(input_overlaps, min_overlap, [
+        b['epitope'] for b in epitope_data
+    ])
+    logger.info('Kept %d edges (from %d)', len(edges), len(epitope_data) * (len(epitope_data) + 1))
+
+    # compute hla and protein coverage
+    logger.info('Computing coverage matrix...')
+    type_coverage, min_type_coverage, min_avg_type_conservation = compute_coverage_matrix(
+        epitope_data, min_alleles, min_proteins, min_avg_prot_conservation,
+        min_avg_alle_conservation, len(proteins), len(alleles)
+    )
+
+    # find optimal design
+    solver = TeamOrienteeringIlp(
+        num_teams=cocktail, vertex_reward=vertex_rewards, edge_cost=edges,
+        max_edge_cost=0, max_vertices=0, lazy_subtour_elimination=not greedy_subtour,
+        type_coverage=type_coverage, min_type_coverage=min_type_coverage,
+        min_avg_type_conservation=min_avg_type_conservation,
+    )
+
+    if isinstance(max_epitopes, (int, float)):
+        solver.update_max_vertices(max_epitopes)
+
+    if isinstance(max_aminoacids, (int, float)):
+        solver.update_max_edge_cost(max_aminoacids)
+
+    return solver, {
+        'proteins': proteins,
+        'alleles': alleles,
+        'epitope_data': epitope_data,
+    }

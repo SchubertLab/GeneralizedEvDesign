@@ -39,7 +39,11 @@ def optimize_coverage(solver):
 
     del solver._model.Objective
     solver._model.Objective = aml.Objective(
-        rule=lambda model: sum(model.OptionCovered[0, o] for o in model.Options),
+        rule=lambda model: sum(
+            model.OptionCovered[0, o] for o in model.Options
+        ) + sum(
+            model.y[n, t] * model.r[n] for n in model.Nodes for t in model.Teams
+        ),
         sense=aml.maximize
     )
     solver._solver.set_objective(solver._model.Objective)
@@ -54,6 +58,8 @@ def optimize_conservation(solver):
             model.y[n, t] * (sum(model.TypeCoverage[0, n, o] for o in model.Options))
             for t in model.Teams
             for n in model.Nodes
+        ) + sum(
+            model.y[n, t] * model.r[n] for n in model.Nodes for t in model.Teams
         ),
         sense=aml.maximize
     )

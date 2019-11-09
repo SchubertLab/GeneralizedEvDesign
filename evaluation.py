@@ -8,7 +8,6 @@ import utilities
 import logging
 import os
 import time
-from builtins import map
 from collections import defaultdict
 from random import sample as random_sample
 
@@ -21,9 +20,7 @@ from Fred2.Core import (Allele, Peptide, Protein,
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
-from Fred2.EpitopeSelection.PopCover import PopCover
 from Fred2.IO import FileReader
-from Fred2.Utility import generate_overlap_graph
 
 from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
                                 MosaicVaccineILP)

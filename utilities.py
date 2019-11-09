@@ -101,7 +101,7 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins,
 
 
 def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_proteins=None):
-    ''' loads the epitopes from the given file, returning a dictionary mapping the epitope string to its data
+    ''' loads the epitopes from the given file, returning a dictionary mapping the epitope string to its data.
         optionally filters the epitopes by only taking the top N with the highest immunogenicity,
         or with the largest allele/protein coverage. if multiple options are given, the union of the
         matching epitopes is returned.

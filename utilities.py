@@ -101,7 +101,7 @@ def compute_coverage_matrix(epitope_data, min_alleles, min_proteins,
 
 
 def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_proteins=None):
-    ''' loads the epitopes from the given file, returning a dictionary mapping the epitope string to its data
+    ''' loads the epitopes from the given file, returning a dictionary mapping the epitope string to its data.
         optionally filters the epitopes by only taking the top N with the highest immunogenicity,
         or with the largest allele/protein coverage. if multiple options are given, the union of the
         matching epitopes is returned.
@@ -111,7 +111,7 @@ def load_epitopes(epitopes_file, top_immunogen=None, top_alleles=None, top_prote
         for row in csv.DictReader(f):
             row['immunogen'] = float(row['immunogen'])
             row['proteins'] = set(row['proteins'].split(';'))
-            row['alleles'] = set(row['alleles'].split(';'))
+            row['alleles'] = set(row['alleles'].split(';')) if row['alleles'] else set()
             epitope_data[row['epitope']] = row
 
     if top_immunogen <= 0 and top_alleles <= 0 and top_proteins <= 0:
@@ -237,8 +237,12 @@ def batches(it, bsize):
 
 
 def parallel_apply(apply_fn, task_generator, processes, preload=64, timeout=99999):
-    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
+    if processes == 1:
+        for task in task_generator:
+            yield apply_fn(*task)
+        return
 
+    pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
     try:
         tasks = []
         task_count = processed_count = 0

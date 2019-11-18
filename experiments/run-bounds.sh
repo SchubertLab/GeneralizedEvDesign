@@ -13,7 +13,9 @@ function run_bound() {
             "${1}/made-overlaps.csv" \
             "${1}/$basename.csv" --min-overlap 8 -e 0 -a $3 --greedy-subtour \
             --verbose --log-file "${1}/$basename.log"
+    fi
 
+    if [ ! -f "${1}/$basename-evaluation.csv" ]; then
         python evaluation.py \
             --verbose --log-file "${1}/$basename-evaluation.log" \
             vaccine \

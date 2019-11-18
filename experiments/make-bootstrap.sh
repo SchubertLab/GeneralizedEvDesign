@@ -22,6 +22,7 @@ do
 done
 
 if [ ! -d "experiments/results/hiv1bc-full" ]; then
-    cp "experiments/resources/hiv1bc-nef.fasta" "experiments/results/hiv1bc-full/made-proteins.fasta"
+    mkdir "experiments/results/hiv1bc-full"
+    cp "experiments/resources/hiv1-bc-nef.fasta" "experiments/results/hiv1bc-full/made-proteins.fasta"
     cp "experiments/resources/alleles.csv" "experiments/results/hiv1bc-full/alleles.csv"
 fi;

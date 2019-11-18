@@ -13,7 +13,6 @@ import os
 import Queue
 import time
 import traceback
-from builtins import map
 from collections import defaultdict
 from random import sample as random_sample
 
@@ -26,9 +25,7 @@ from Fred2.Core import (Allele, Peptide, Protein,
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
-from Fred2.EpitopeSelection.PopCover import PopCover
 from Fred2.IO import FileReader
-from Fred2.Utility import generate_overlap_graph
 
 from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
                                 MosaicVaccineILP)
@@ -165,7 +162,7 @@ def get_binding_affinity_process(batch, alleles):
 def compute_affinities(input_alleles, input_peptides, output_affinities, processes):
     ''' Computes the binding affinities between the given peptides and HLA alleles
     '''
-    alleles = [Allele(a) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
+    alleles = [Allele(a.replace('HLA-', '')) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
     LOGGER.info('Loaded %d alleles', len(alleles))
 
     with open(input_peptides) as f:
@@ -221,14 +218,13 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
                 
                 val = float(val)
                 immunogen += val * alleles[col]['frequency'] / 100
-                if val > alleles[col]['threshold']:
+                if val >= alleles[col]['threshold']:
                     bindings.append(col)
 
-            if bindings:
-                epitopes[row['Seq']] = {
-                    'alleles': ';'.join(bindings),
-                    'immunogen': immunogen,
-                }
+            epitopes[row['Seq']] = {
+                'alleles': ';'.join(bindings),
+                'immunogen': immunogen,
+            }
 
     if not epitopes:
         LOGGER.error('No epitopes found!')

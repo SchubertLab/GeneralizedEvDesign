@@ -18,7 +18,7 @@ from Fred2.Core import (Allele, Peptide, Protein,
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
-#from Fred2.EpitopeSelection import OptiTope, PopCover
+from Fred2.EpitopeSelection import OptiTope #, PopCover
 from Fred2.IO import FileReader
 
 from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
@@ -230,7 +230,7 @@ def optitope(input_affinities, input_peptides, input_alleles, output_vaccine, ep
             epitope_immunog = sum(model.instance.p[a] * model.instance.i[epitope, a]
                                   for a in model.instance.A)
             total_ig += epitope_immunog
-            LOGGER.info('    %s -logger.2f', epitope, epitope_immunog)
+            LOGGER.info('    %s - %.2f', epitope, epitope_immunog)
         LOGGER.info('Total immunogenicity: %.2f', total_ig)
 
 

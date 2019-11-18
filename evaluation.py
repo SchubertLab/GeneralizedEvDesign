@@ -142,7 +142,7 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
     with open(input_epitopes) as f:
         for row in csv.DictReader(f):
             row['immunogen'] = float(row['immunogen'])
-            row['alleles'] = row['alleles'].split(';')
+            row['alleles'] = row['alleles'].split(';') if row['alleles'] else []
             row['proteins'] = row['proteins'].split(';')
             if row['immunogen'] > 0:
                 epitope_data[row['epitope']] = row

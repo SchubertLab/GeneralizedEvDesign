@@ -8,7 +8,6 @@ import utilities
 import logging
 import os
 import time
-from builtins import map
 from collections import defaultdict
 from random import sample as random_sample
 
@@ -21,9 +20,7 @@ from Fred2.Core import (Allele, Peptide, Protein,
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
-from Fred2.EpitopeSelection.PopCover import PopCover
 from Fred2.IO import FileReader
-from Fred2.Utility import generate_overlap_graph
 
 from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
                                 MosaicVaccineILP)
@@ -145,7 +142,7 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
     with open(input_epitopes) as f:
         for row in csv.DictReader(f):
             row['immunogen'] = float(row['immunogen'])
-            row['alleles'] = row['alleles'].split(';')
+            row['alleles'] = row['alleles'].split(';') if row['alleles'] else []
             row['proteins'] = row['proteins'].split(';')
             if row['immunogen'] > 0:
                 epitope_data[row['epitope']] = row

@@ -32,8 +32,6 @@ import numpy as np
 import pyomo.environ as aml
 import pyomo.kernel as pmo
 from Fred2.Core.Result import EpitopePredictionResult
-from Fred2.Utility import generate_overlap_graph
-from Fred2.Utility import solve_TSP_LKH as _solve_tsp
 from pyomo.core.expr.numeric_expr import SumExpression
 from pyomo.opt import SolverFactory, TerminationCondition
 

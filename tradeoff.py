@@ -1,10 +1,9 @@
 
 from __future__ import division, print_function
-import multiprocessing as mp
-import csv
-import utilities
 
+import csv
 import logging
+import multiprocessing as mp
 import os
 import time
 from builtins import map
@@ -12,27 +11,23 @@ from collections import defaultdict
 from random import sample as random_sample
 
 import click
-import Fred2
 import numpy as np
 import pandas as pd
+import pyomo.environ as aml
+import pyomo.kernel as pmo
+from pyomo.core.expr.numeric_expr import SumExpression
+from pyomo.opt import SolverFactory, TerminationCondition
+
+import Fred2
+import utilities
 from Fred2.Core import (Allele, Peptide, Protein,
                         generate_peptides_from_proteins)
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
-from Fred2.EpitopeSelection import OptiTope, PopCover
+from Fred2.EpitopeSelection import OptiTope
 from Fred2.IO import FileReader
-from Fred2.Utility import generate_overlap_graph
-
-from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
-                                MosaicVaccineILP)
 from team_orienteering_ilp import TeamOrienteeringIlp
-
-from pyomo.core.expr.numeric_expr import SumExpression
-from pyomo.opt import SolverFactory, TerminationCondition
-import pyomo.environ as aml
-import pyomo.kernel as pmo
-
 
 LOGGER = None
 
@@ -44,13 +39,13 @@ LOGGER = None
 @click.option('--verbose', '-v', is_flag=True, help='print debug messages on the console')
 @click.option('--log-file', '-l', type=click.Path(), help='where to store the logs')
 @click.option('--pareto-steps', '-s', default=10, help='How many points to discover on the pareto frontier')
-@click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
-@click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the vaccine in aminoacids')
-@click.option('--max-epitopes', '-e', default=10, help='Maximum length of the vaccine in epitopes')
+@click.option('--cocktail', '-c', default=1, help='How many strains to include in the epitopes cocktail')
+@click.option('--max-aminoacids', '-a', default=0, help='Maximum length of the epitopes in aminoacids')
+@click.option('--max-epitopes', '-e', default=10, help='Maximum length of the epitopes in epitopes')
 @click.option('--min-alleles', default=0.0, help='Vaccine must cover at least this many alleles')
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
-@click.option('--min-avg-prot-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many proteins')
-@click.option('--min-avg-alle-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many alleles')
+@click.option('--min-avg-prot-conservation', default=0.0, help='On average, epitopes in the epitopes must cover at least this many proteins')
+@click.option('--min-avg-alle-conservation', default=0.0, help='On average, epitopes in the epitopes must cover at least this many alleles')
 def main(input_epitopes, input_cleavages, output_frontier, cocktail, pareto_steps, verbose, log_file,
          max_aminoacids, max_epitopes, min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation):
     ''' Explore the trade-off between the immunogenicity and the cleavage likelihood for string-of-beads vaccines.
@@ -84,7 +79,7 @@ def main(input_epitopes, input_cleavages, output_frontier, cocktail, pareto_step
             cleavages[(ep_from, ep_to)] if ep_from != '' and ep_to != '' else 0.0
             for ep_to in vertex_to_epitope
         ])
-    
+
     type_coverage, min_type_coverage, min_conservation = utilities.compute_coverage_matrix(
         epitopes, min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation
     )
@@ -100,11 +95,13 @@ def main(input_epitopes, input_cleavages, output_frontier, cocktail, pareto_step
     reward_cost = solver.explore_edge_cost_vertex_reward_tradeoff(pareto_steps)
     with open(output_frontier, 'w') as f:
         writer = csv.writer(f)
-        writer.writerow(('immunogenicity', 'cleavage'))
-        for ig, cl in reward_cost:
-            writer.writerow((ig, cl))
+        writer.writerow(('immunogenicity', 'cleavage', 'epitopes'))
+        for epitopes_index, immunogen, cleavage in reward_cost:
+            epitopes = [vertex_to_epitope[a] for a, _ in epitopes_index[0][1:]]  # FIXME multiple tours?
+            writer.writerow((immunogen, cleavage, ';'.join(epitopes)))
             f.flush()  # write progress immediately
-            LOGGER.info('Immunogenicity: %.3f - Cleavage: %.3f', ig, cl)
+            LOGGER.info('Immunogenicity: %.3f - Cleavage: %.3f - Epitopes: %s',
+                        immunogen, cleavage, ', '.join(epitopes))
 
 
 if __name__ == '__main__':

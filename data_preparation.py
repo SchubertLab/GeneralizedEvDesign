@@ -1,39 +1,38 @@
 from __future__ import division, print_function
-import itertools
-import random
-import numpy as np
-from Fred2.CleavagePrediction import CleavageSitePredictorFactory, CleavageFragmentPredictorFactory
-import utilities
 
+import csv
 import heapq
+import itertools
 import json
 import logging
 import multiprocessing as mp
 import os
-import Queue
+import random
+import subprocess as sp
+import tempfile
 import time
 import traceback
 from collections import defaultdict
+from queue import Queue
 from random import sample as random_sample
 
 import click
-import Fred2
 import numpy as np
 import pandas as pd
+
+import Fred2
+import utilities
+from Fred2.CleavagePrediction import (CleavageFragmentPredictorFactory,
+                                      CleavageSitePredictorFactory)
 from Fred2.Core import (Allele, Peptide, Protein,
                         generate_peptides_from_proteins)
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
 from Fred2.IO import FileReader
-
 from team_orienteering_ilp import TeamOrienteeringIlp
 
-import csv
-
-
 LOGGER = None
-
 
 
 @click.group()
@@ -102,6 +101,7 @@ def extract_peptides(input_sequences, max_edits, output_peptides, top_n):
     LOGGER.info('Extracting protein coverage for each peptide...')
     all_peptides = utilities.Trie()
     proteins_by_peptide = {}
+
     for i, prot in enumerate(proteins):
         aminoacids = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
         peptides_in_this_protein = set()  # make sure we only count peptides once per protein
@@ -148,8 +148,71 @@ def extract_peptides(input_sequences, max_edits, output_peptides, top_n):
                 writer.writerow((peptide, ','.join(list(map(str, reachable_proteins)))))
 
 
-def get_binding_affinity_process(batch, alleles):
-    return EpitopePredictorFactory('netmhcpan').predict(batch, alleles)
+def predict_rank_with_netmhcpan(batch, alleles):
+    tmp = tempfile.mktemp(prefix='netmhcpan-rank-')
+    with open(tmp, 'w') as f:
+        for pep in batch:
+            f.write(f'{pep}\n')
+
+    # call netmhcpan to predict
+    output = sp.check_output([
+        'netMHCpan', '-f', tmp, '-inptype', '1', '-a', ','.join(
+            str(a).replace('*', '') for a in alleles
+        )
+    ])
+
+    # write output to temp file
+    with open(tmp + '-out', 'wb') as f:
+        f.write(output)
+
+    # parse netmhcpan output
+    num_hr = 0
+    binding = []
+    header = [
+        'Pos', 'HLA', 'Peptide', 'Core', 'Of', 'Gp', 'Gl', 'Ip',
+        'Il', 'Icore', 'Identity', 'Score', '%Rank', 'BindLevel'
+    ]
+    for i, row in enumerate(output.decode().split('\n')):
+        if row.startswith('---------'):
+            num_hr += 1
+            continue
+
+        parts = row.split()
+        if num_hr == 1:
+            assert parts == header  # sanity check
+        elif num_hr == 2:
+            data = dict(zip(header, parts))
+            binding.append((data['Peptide'], data['HLA'], 100 - float(data['%Rank'])))
+        elif num_hr == 4:
+            num_hr = 0
+
+    # convert to dataframe following fred's format
+    res = pd.DataFrame(
+        binding, columns=['Seq', 'HLA', 'rank']
+    ).pivot(
+        index='Seq', columns='HLA', values='rank'
+    )
+    res['Method'] = 'netmhcpan-rank'
+    cols = ['Method'] + res.columns[:-1].tolist()
+    return res[cols]
+
+
+def get_binding_affinity_process(predictor, batch, alleles):
+    if predictor == 'netmhcpan-rank':
+        return predict_rank_with_netmhcpan(batch, alleles)
+    elif predictor == 'netmhcpan':
+        from Fred2.EpitopePrediction.External import NetMHCpan_4_0
+        predictor = NetMHCpan_4_0()
+    elif predictor == 'pickpocket':
+        from Fred2.EpitopePrediction.External import PickPocket_1_1
+        predictor = PickPocket_1_1()
+    elif predictor == 'mhcflurry':
+        from Fred2.EpitopePrediction.ANN import MHCFlurryPredictor_1_4_3
+        predictor = MHCFlurryPredictor_1_4_3()
+    else:
+        raise ValueError(f'unknown predictor: "{predictor}"')
+
+    return predictor.predict(batch, alleles)
 
 
 @main.command()
@@ -157,10 +220,14 @@ def get_binding_affinity_process(batch, alleles):
 @click.argument('input-peptides', type=click.Path())
 @click.argument('output-affinities', type=click.Path())
 @click.option('--processes', '-p', default=-1)
-def compute_affinities(input_alleles, input_peptides, output_affinities, processes):
+@click.option('--predictor', '-P', default='netmhcpan')
+def compute_affinities(input_alleles, input_peptides, output_affinities, processes, predictor):
     ''' Computes the binding affinities between the given peptides and HLA alleles
     '''
-    alleles = [Allele(a.replace('HLA-', '')) for a in utilities.get_alleles_and_thresholds(input_alleles).index]
+    alleles = [
+        Allele(a.replace('HLA-', ''))
+        for a in utilities.get_alleles_and_thresholds(input_alleles).index
+    ]
     LOGGER.info('Loaded %d alleles', len(alleles))
 
     with open(input_peptides) as f:
@@ -168,12 +235,12 @@ def compute_affinities(input_alleles, input_peptides, output_affinities, process
         peptides = [(
             Peptide(r['peptide']), len(r['proteins'].split(';'))
         ) for r in reader]
-    
+
     peptides.sort(key=lambda p: p[1], reverse=True)
     LOGGER.info('Loaded %d peptides', len(peptides))
 
     results = utilities.parallel_apply(get_binding_affinity_process, (
-        (batch, alleles)
+        (predictor.lower(), batch, alleles)
         for batch in utilities.batches((p for p, _ in peptides), bsize=256)
     ), processes)
 
@@ -200,20 +267,14 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
     # load affinities, compute bindings and immunogenicities
     epitopes = {}
     with open(input_affinities) as f:
-        warned = False
         for row in csv.DictReader(f):
-            if row['Method'] != 'netmhcpan':
-                if not warned:
-                    LOGGER.warn('Wrong affinity prediction method used; please use netmhcpan! Some rows will be skipped')
-                    warned = True
-                continue
             row.pop('Method')
 
             bindings, immunogen = [], 0.0
-            for col, val in row.iteritems():
+            for col, val in row.items():
                 if not col.startswith('HLA'):
                     continue
-                
+
                 val = float(val)
                 immunogen += val * alleles[col]['frequency'] / 100
                 if val >= alleles[col]['threshold']:
@@ -229,7 +290,7 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
         return
     else:
         LOGGER.info('Found %d epitopes', len(epitopes))
-    
+
     # load protein coverage
     coverage = {}
     all_proteins = set()
@@ -239,10 +300,10 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
             coverage[epitope] = row
             all_proteins.update(set(row['proteins'].split(';')))
     LOGGER.info('Loaded %d proteins and %d peptides', len(all_proteins), len(coverage))
-    
+
     # merge epitopes and coverage
     merged = []
-    for epitope, data in epitopes.iteritems():
+    for epitope, data in epitopes.items():
         data.update(coverage[epitope])
         data['epitope'] = epitope
         merged.append(data)
@@ -256,7 +317,10 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
 
 
 def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
-    predictor = CleavageSitePredictorFactory(cleavage_model)
+    #predictor = CleavageSitePredictorFactory(cleavage_model)
+    assert cleavage_model.lower() == 'pcm'
+    from Fred2.CleavagePrediction import PCM
+    predictor = PCM()
 
     results = []
     for ep_from, ep_to in epitopes:
@@ -275,17 +339,18 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
 @main.command()
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('output-cleavages', type=click.Path())
-@click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', type=float)
-@click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
-@click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
+@click.option('--top-proteins', default=0.0, help='Only consider the top epitopes by protein coverage')
+@click.option('--top-immunogen', default=0.0, help='Only consider the top epitopes by immunogenicity')
+@click.option('--top-alleles', default=0.0, help='Only consider the top epitopes by allele coverage')
 @click.option('--penalty', '-P', default=0.1, help='How much to penalize wrong cleavages around the desired cleavage site')
 @click.option('--cleavage-window', '-w', default=5, help='Size of the window to consider for wrong cleavages')
 @click.option('--cleavage-model', '-c', default='PCM', help='Which model to use to predict cleavage sites')
 @click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
-def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes, cleavage_window, top_proteins, top_immunogen, top_alleles):
+def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes,
+                      cleavage_window, top_proteins, top_immunogen, top_alleles):
     epitopes = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).keys()
     LOGGER.info('Loaded %d epitopes', len(epitopes))
-    
+
     LOGGER.info('Predicting cleavage sites of all pairs...')
     results = utilities.parallel_apply(get_cleavage_score_process, (
         (penalty, cleavage_model, cleavage_window, [(e, f) for f in epitopes])
@@ -335,7 +400,7 @@ def compute_overlaps(input_epitopes, output_overlaps, processes):
 
         if is_percent_barrier(i, len(epitopes), 1):
             LOGGER.debug('Processed %d overlap pairs (%.2f%%)...',
-                        len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
+                         len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
 
     LOGGER.info('Writing to file')
     with open(output_overlaps, 'w') as f:

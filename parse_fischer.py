@@ -20,8 +20,6 @@ from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
 from Fred2.IO import FileReader
 
-from mosaic_vaccine_ilp import (DataContainer, EvaluationResult,
-                                MosaicVaccineILP)
 from team_orienteering_ilp import TeamOrienteeringIlp
 import pyomo.environ as aml
 import pyomo.kernel as pmo

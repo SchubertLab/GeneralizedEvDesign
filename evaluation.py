@@ -1,29 +1,27 @@
 from __future__ import division, print_function
-import re
-import glob
-from collections import defaultdict
-import csv
-import utilities
 
+import csv
+import glob
 import logging
 import os
+import re
 import time
 from collections import defaultdict
 from random import sample as random_sample
 
 import click
-import Fred2
 import numpy as np
 import pandas as pd
+
+import Fred2
+import utilities
 from Fred2.Core import (Allele, Peptide, Protein,
                         generate_peptides_from_proteins)
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
 from Fred2.IO import FileReader
-
 from team_orienteering_ilp import TeamOrienteeringIlp
-
 
 LOGGER = None
 
@@ -40,9 +38,9 @@ def compute_allele_coverage(alleles, allele_data):
     prob_locus_covered = {'HLA-A': 0.0, 'HLA-B': 0.0, 'HLA-C': 0.0}
     for allele in set(alleles):
         prob_locus_covered[allele[:5]
-                            ] += allele_data[allele]['frequency'] / 100.0
+                           ] += allele_data[allele]['frequency'] / 100.0
     coverage = 1 - reduce(lambda p, q: p * q,
-                            ((1 - p)**2 for p in prob_locus_covered.values()))
+                          ((1 - p)**2 for p in prob_locus_covered.values()))
     return coverage
 
 
@@ -65,7 +63,7 @@ def evaluate_epitopes(epitopes, epitope_data, allele_data, protein_count):
         set(epitope_data[epi]['proteins'])
         for epi in epitopes
     ))
-    
+
     # compute epitope conservation
     conservations = [
         len(epitope_data[epi]['proteins'])
@@ -182,7 +180,7 @@ def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summa
     if not fnames:
         LOGGER.error('Path specification did not match any files!')
         return -1
-    
+
     dataframes = []
     for f in fnames:
         LOGGER.debug('Parsing %s...', f)
@@ -200,12 +198,12 @@ def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summa
                     return -3
         else:
             groups = {}
-        
+
         df = pd.read_csv(f)
         df['source'] = f
         for col, val in groups.iteritems():
             df[col] = val
-        
+
         dataframes.append(df)
     LOGGER.info('Parsed %d result files', len(dataframes))
 

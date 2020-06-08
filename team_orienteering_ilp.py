@@ -21,17 +21,18 @@ import itertools as itr
 import logging
 import math
 import multiprocessing as mp
-import StringIO
 import sys
 import time
 from collections import defaultdict
+from io import StringIO
 
 import numpy as np
 import pyomo.environ as aml
 import pyomo.kernel as pmo
-from Fred2.Core.Result import EpitopePredictionResult
 from pyomo.core.expr.numeric_expr import SumExpression
 from pyomo.opt import SolverFactory, TerminationCondition
+
+from Fred2.Core.Result import EpitopePredictionResult
 
 
 class TeamOrienteeringIlp:
@@ -54,6 +55,7 @@ class TeamOrienteeringIlp:
         self._solver_type = solver
         self._vertex_reward = vertex_reward
         self._num_teams = num_teams
+
         self._max_edge_cost = max_edge_cost
         self._max_vertices = max_vertices
         self._type_coverage = type_coverage
@@ -96,7 +98,8 @@ class TeamOrienteeringIlp:
             self._model.NodesOut = aml.Set(self._model.Nodes, initialize=lambda model, node: nodes_out[node])
             self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[(u, v)])
         else:
-            self._model.Edges = aml.Set(initialize=self._model.Nodes * self._model.Nodes, filter=lambda model, u, v: u != v)
+            self._model.Edges = aml.Set(initialize=self._model.Nodes * self._model.Nodes,
+                                        filter=lambda model, u, v: u != v)
             self._model.d = aml.Param(self._model.Edges, initialize=lambda model, u, v: self._edge_cost[u][v])
 
         # indicator variables for nodes and arcs
@@ -128,24 +131,26 @@ class TeamOrienteeringIlp:
             (n for n in self._model.Nodes if n != 0),
             rule=lambda model, node: sum(model.y[node, t] for t in model.Teams) <= 1
         )
-        
+
         # incoming connnections = outgoing connections = node selected
         # i.e. no sources or sinks (implies path is connected)
         #      enforces consistency between x and y (i.e. node touched by arcs if and only if it is selected)
         #      and at most one path passes from the node
         self.logger.debug('Adding consistency and connectedness constraints...')
         if self._is_graph_sparse:
-            in_rule = lambda model, node, team: sum(
+            def in_rule(model, node, team): return sum(
                 model.x[(v, node), team] for v in model.NodesIn[node]
             ) == model.y[node, team]
-            out_rule = lambda model, node, team: sum(
+
+            def out_rule(model, node, team): return sum(
                 model.x[(node, v), team] for v in model.NodesOut[node]
             ) == model.y[node, team]
         else:
-            in_rule=lambda model, node, team: sum(
+            def in_rule(model, node, team): return sum(
                 model.x[(node, v), team] for v in model.Nodes if v != node
             ) == model.y[node, team]
-            out_rule = lambda model, node, team: sum(
+
+            def out_rule(model, node, team): return sum(
                 model.x[(v, node), team] for v in model.Nodes if v != node
             ) == model.y[node, team]
 
@@ -173,8 +178,8 @@ class TeamOrienteeringIlp:
 
         if self._type_coverage and (self._min_type_coverage or self._min_avg_type_conservation):
             assert (not self._min_type_coverage
-                or not self._min_avg_type_conservation
-                or len(self._min_avg_type_conservation) == len(self._min_type_coverage))
+                    or not self._min_avg_type_conservation
+                    or len(self._min_avg_type_conservation) == len(self._min_type_coverage))
 
             self.logger.debug('Adding coverage information...')
             # type_coverage is a binary tensor s.t. C_ijk = 1 iff vertex j covers option k of type i
@@ -185,7 +190,8 @@ class TeamOrienteeringIlp:
                                                  initialize=lambda model, t, n, o: self._type_coverage[t][n][o])
 
             # indicator variable 1 iff at least one team visits at least one vertex of option i of type j
-            self._model.OptionCovered = aml.Var(self._model.Types * self._model.Options, domain=aml.Binary, initialize=0)
+            self._model.OptionCovered = aml.Var(
+                self._model.Types * self._model.Options, domain=aml.Binary, initialize=0)
             self._model.OptionCoveredConstraint = aml.Constraint(
                 self._model.Types * self._model.Options,
                 rule=lambda model, typ, option: sum(
@@ -218,13 +224,13 @@ class TeamOrienteeringIlp:
                 )
                 self._model.MinOptionConservationConstraint = aml.Constraint(
                     self._model.Types, rule=lambda model, typ: sum(
-                    model.y[n, t] * (
-                        sum(model.TypeCoverage[typ, n, o] for o in model.Options)
-                        - model.MinOptionConservation[typ]
-                    )
-                    for t in model.Teams
-                    for n in model.Nodes
-                ) >= 0)
+                        model.y[n, t] * (
+                            sum(model.TypeCoverage[typ, n, o] for o in model.Options)
+                            - model.MinOptionConservation[typ]
+                        )
+                        for t in model.Teams
+                        for n in model.Nodes
+                    ) >= 0)
         else:
             self.logger.info('No coverage enforced')
 
@@ -236,7 +242,7 @@ class TeamOrienteeringIlp:
 
         self.logger.info('Model build!')
         return self
-    
+
     def update_max_vertices(self, max_vertices):
         def get_constraint(team):
             if max_vertices > 0:
@@ -256,7 +262,7 @@ class TeamOrienteeringIlp:
             self.logger.info('No maximum vertex count enforced.')
         else:
             self.logger.info('Maximum vertex count for each tour is %d', self._max_vertices)
-    
+
     def update_max_edge_cost(self, max_edge_cost):
         def get_constraint(team):
             if max_edge_cost > 0:
@@ -299,7 +305,7 @@ class TeamOrienteeringIlp:
             new_constraints.append(name)
             self._solver.add_constraint(constr)
         return new_constraints
-    
+
     def solve(self, options=None):
         # if logging is configured, gurobipy will print messages there *and* on stdout
         # so we silence its logger and redirect all stdout to our own logger
@@ -362,7 +368,7 @@ class TeamOrienteeringIlp:
                     ))
                 else:
                     all_tours_edges.append(this_tour_edges[0])
-            
+
             if valid_solution:
                 break
 
@@ -430,7 +436,7 @@ class TeamOrienteeringIlp:
                 cursor = arcs[cursor]
             tours.append(tour)
         return tours
-    
+
     def explore_edge_cost_vertex_reward_tradeoff(self, steps):
         # introduce variables for vertex reward and edge cost
         self._model.VertexReward = aml.Var()
@@ -500,10 +506,10 @@ class TeamOrienteeringIlp:
             )
             self._solver.add_constraint(self._model.EdgeCostConstr)
 
-            self.solve()
+            vaccine = self.solve()
             reward, cost = aml.value(self._model.VertexReward), aml.value(self._model.EdgeCost)
             self.logger.info('Obtained reward %f with cost %f', reward, cost)
-            yield (reward, cost)
+            yield vaccine, reward, cost
 
             self._solver.remove_constraint(self._model.EdgeCostConstr)
             del self._model.EdgeCostConstr

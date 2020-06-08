@@ -1,29 +1,28 @@
 from __future__ import division, print_function
-import multiprocessing as mp
-import csv
-import utilities
 
+import csv
 import logging
+import multiprocessing as mp
 import os
 import time
 from collections import defaultdict
 from random import sample as random_sample
 
 import click
-import Fred2
 import numpy as np
 import pandas as pd
+import pyomo.environ as aml
+import pyomo.kernel as pmo
+
+import Fred2
+import utilities
 from Fred2.Core import (Allele, Peptide, Protein,
                         generate_peptides_from_proteins)
 from Fred2.Core.Peptide import Peptide
 from Fred2.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
 from Fred2.IO import FileReader
-
 from team_orienteering_ilp import TeamOrienteeringIlp
-import pyomo.environ as aml
-import pyomo.kernel as pmo
-
 
 LOGGER = None
 

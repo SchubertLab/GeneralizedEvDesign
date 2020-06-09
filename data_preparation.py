@@ -203,16 +203,19 @@ def get_binding_affinity_process(predictor, batch, alleles):
     elif predictor == 'netmhcpan':
         from Fred2.EpitopePrediction.External import NetMHCpan_4_0
         predictor = NetMHCpan_4_0()
+        return predictor.predict(batch, alleles)
     elif predictor == 'pickpocket':
         from Fred2.EpitopePrediction.External import PickPocket_1_1
         predictor = PickPocket_1_1()
+        return predictor.predict(batch, alleles)
     elif predictor == 'mhcflurry':
         from Fred2.EpitopePrediction.ANN import MHCFlurryPredictor_1_4_3
         predictor = MHCFlurryPredictor_1_4_3()
+        ic50 = predictor.predict(batch, alleles)
+        return 1 - np.log(ic50) / np.log(50000)
     else:
         raise ValueError(f'unknown predictor: "{predictor}"')
 
-    return predictor.predict(batch, alleles)
 
 
 @main.command()

@@ -199,6 +199,7 @@ def init_logging(verbose, log_file, log_append=False):
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
+    logger.handlers.clear()
 
     fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
     sh = logging.StreamHandler()

@@ -46,10 +46,14 @@ LOGGER = None
 @click.option('--min-proteins', default=0.0, help='Vaccine must cover at least this many proteins')
 @click.option('--min-avg-prot-conservation', default=0.0, help='On average, epitopes in the epitopes must cover at least this many proteins')
 @click.option('--min-avg-alle-conservation', default=0.0, help='On average, epitopes in the epitopes must cover at least this many alleles')
-def main(input_epitopes, input_cleavages, output_frontier, cocktail, pareto_steps, verbose, log_file,
-         max_aminoacids, max_epitopes, min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation):
-    ''' Explore the trade-off between the immunogenicity and the cleavage likelihood for string-of-beads vaccines.
-        Outputs the Pareto frontier of the two objectives.
+def main(input_epitopes, input_cleavages, output_frontier, cocktail,
+         pareto_steps, verbose, log_file, max_aminoacids, max_epitopes,
+         min_alleles, min_proteins, min_avg_prot_conservation,
+         min_avg_alle_conservation):
+    '''
+    Explore the trade-off between the immunogenicity and the cleavage
+    likelihood for string-of-beads vaccines. Outputs the Pareto frontier
+    of the two objectives.
     '''
 
     global LOGGER
@@ -80,16 +84,12 @@ def main(input_epitopes, input_cleavages, output_frontier, cocktail, pareto_step
             for ep_to in vertex_to_epitope
         ])
 
-    type_coverage, min_type_coverage, min_conservation = utilities.compute_coverage_matrix(
-        epitopes, min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation
-    )
-
     # find optimal design
     solver_build_time = time.time()
     solver = TeamOrienteeringIlp(
         num_teams=cocktail, vertex_reward=vertices_rewards, edge_cost=edge_cost,
-        type_coverage=type_coverage, min_type_coverage=min_type_coverage,
-        min_avg_type_conservation=min_conservation, max_edge_cost=0, max_vertices=max_epitopes
+        type_coverage=[], min_type_coverage=[], min_avg_type_conservation=[],
+        max_edge_cost=0, max_vertices=max_epitopes
     )
     solver.build_model()
     reward_cost = solver.explore_edge_cost_vertex_reward_tradeoff(pareto_steps)

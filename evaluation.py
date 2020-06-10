@@ -1,6 +1,7 @@
-from __future__ import division, print_function
+
 
 import csv
+from functools import reduce
 import glob
 import logging
 import os
@@ -37,8 +38,7 @@ def main(verbose, log_file):
 def compute_allele_coverage(alleles, allele_data):
     prob_locus_covered = {'HLA-A': 0.0, 'HLA-B': 0.0, 'HLA-C': 0.0}
     for allele in set(alleles):
-        prob_locus_covered[allele[:5]
-                           ] += allele_data[allele]['frequency'] / 100.0
+        prob_locus_covered[allele[:5]] += allele_data[allele]['frequency'] / 100.0
     coverage = 1 - reduce(lambda p, q: p * q,
                           ((1 - p)**2 for p in prob_locus_covered.values()))
     return coverage
@@ -49,7 +49,7 @@ def evaluate_epitopes(epitopes, epitope_data, allele_data, protein_count):
     immunogen = sum(epitope_data[epi]['immunogen'] for epi in epitopes)
 
     # compute population coverage
-    max_coverage = compute_allele_coverage(allele_data.keys(), allele_data)
+    max_coverage = compute_allele_coverage(list(allele_data.keys()), allele_data)
 
     vaccine_alleles = set([
         allele
@@ -133,7 +133,7 @@ def vaccine(input_sequences, input_peptides, input_alleles, input_epitopes, inpu
     # load epitopes (also fill peptides since some design methods do not use epitopes)
     epitope_data = {
         pep: {'immunogen': 0.0, 'alleles': [], 'proteins': prots}
-        for pep, prots in peptides.iteritems()
+        for pep, prots in peptides.items()
     }
     with open(input_epitopes) as f:
         for row in csv.DictReader(f):
@@ -201,7 +201,7 @@ def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summa
 
         df = pd.read_csv(f)
         df['source'] = f
-        for col, val in groups.iteritems():
+        for col, val in groups.items():
             df[col] = val
 
         dataframes.append(df)
@@ -221,7 +221,7 @@ def aggregate(path_spec, output_aggregate, path_format, summary_by, output_summa
         if summary_by:
             summary = res_df.groupby(list(summary_by)).apply(lambda g: g.describe().T)
             # bring the columns at the outermost level to facilitate comparing the same metric among different evaluations
-            summary.index = summary.index.reorder_levels([len(summary_by)] + range(len(summary_by)))
+            summary.index = summary.index.reorder_levels([len(summary_by)] + list(range(len(summary_by))))
         else:
             summary = res_df.describe().T
 

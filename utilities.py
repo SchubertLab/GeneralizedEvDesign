@@ -46,7 +46,7 @@ class Trie:
                 for s in reachable:
                     yield s
         else:
-            for letter, child in self.children.iteritems():
+            for letter, child in self.children.items():
                 if letter == string[pos_in_string]:
                     reachable = child.reachable_strings(string, mistakes_allowed,
                                                         pos_in_string + 1, mistakes_done)
@@ -326,7 +326,7 @@ def load_edges_from_overlaps(input_overlaps, min_overlap, epitopes):
 
     # create edges to/from the dummy vertex
     edges = {}
-    for e, i in epitope_index.iteritems():
+    for e, i in epitope_index.items():
         edges[(0, i + 1)] = len(e)
         edges[(i + 1, 0)] = 0
 
@@ -370,7 +370,7 @@ def get_mosaic_solver_instance(logger, input_proteins, input_alleles, input_epit
     logger.info('Loaded %d alleles', len(alleles))
 
     # load epitopes
-    epitope_data = load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values()
+    epitope_data = list(load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).values())
     logger.info('Loaded %d epitopes', len(epitope_data))
 
     # load edge cost

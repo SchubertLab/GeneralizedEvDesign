@@ -1,4 +1,4 @@
-from __future__ import division, print_function
+
 
 import csv
 import logging
@@ -147,9 +147,10 @@ def string_of_beads(input_proteins, input_alleles, input_epitopes, input_cleavag
         ])
     LOGGER.info('Kept %d epitopes with available clevages', len(vertices) - 1)
 
-    type_coverage, min_type_coverage, min_avg_type_conservation = utilities.compute_coverage_matrix([
-        epitopes[e] for e in vertex_to_epitope[1:]
-    ], min_alleles, min_proteins, min_avg_prot_conservation, min_avg_alle_conservation, len(proteins), len(alleles))
+    type_coverage, min_type_coverage, min_avg_type_conservation = utilities.compute_coverage_matrix(
+        [epitopes[e] for e in vertex_to_epitope[1:]], min_alleles, min_proteins,
+        min_avg_prot_conservation, min_avg_alle_conservation, len(proteins), len(alleles)
+    )
 
     # find optimal design
     solver_build_time = time.time()
@@ -201,7 +202,7 @@ def optitope(input_affinities, input_peptides, input_alleles, output_vaccine, ep
     LOGGER.info('Loaded %d peptides', len(peptides))
 
     allele_data = utilities.get_alleles_and_thresholds(input_alleles).to_dict('index')
-    thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.iteritems()}
+    thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.items()}
     LOGGER.info('Loaded %d alleles', len(thresholds))
 
     affinities = utilities.affinities_from_csv(input_affinities, allele_data, peptide_coverage=peptides)
@@ -245,7 +246,7 @@ def popcover(input_peptides, input_affinities, input_alleles, output_vaccine, pr
     LOGGER.info('Loaded %d peptides', len(peptides))
 
     allele_data = utilities.get_alleles_and_thresholds(input_alleles).to_dict('index')
-    thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.iteritems()}
+    thresholds = {allele.replace('HLA-', ''): data['threshold'] for allele, data in allele_data.items()}
     LOGGER.info('Loaded %d alleles', len(thresholds))
 
     affinities = utilities.affinities_from_csv(input_affinities, allele_data, peptides)

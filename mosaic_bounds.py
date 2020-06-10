@@ -1,4 +1,4 @@
-from __future__ import division, print_function
+
 
 import csv
 import logging
@@ -68,9 +68,9 @@ def optimize_conservation(solver):
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('input-overlaps', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
-@click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', type=float)
-@click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
-@click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
+@click.option('--top-proteins', default=0.0, help='Only consider the top epitopes by protein coverage')
+@click.option('--top-immunogen', default=0.0, help='Only consider the top epitopes by immunogenicity')
+@click.option('--top-alleles', default=0.0, help='Only consider the top epitopes by allele coverage')
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=[0], multiple=True, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=[10], multiple=True, help='Maximum length of the vaccine in epitopes')

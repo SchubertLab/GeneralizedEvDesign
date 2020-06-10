@@ -14,7 +14,7 @@
 
 '''
 
-from __future__ import division, print_function
+
 
 import copy
 import itertools as itr
@@ -383,7 +383,7 @@ class TeamOrienteeringIlp:
         '''
         for tour in tours:
             tour_nodes = set(i for i, _ in tour)
-            for team in xrange(self._num_teams):
+            for team in range(self._num_teams):
                 self._subtour_constraints += 1
                 name = 'Subtour_%d' % self._subtour_constraints
                 constraint = pmo.constraint(

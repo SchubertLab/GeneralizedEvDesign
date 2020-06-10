@@ -1,4 +1,4 @@
-from __future__ import division, print_function
+
 
 import csv
 import heapq
@@ -105,7 +105,7 @@ def extract_peptides(input_sequences, max_edits, output_peptides, top_n):
     for i, prot in enumerate(proteins):
         aminoacids = ''.join(c for c in prot._data if c.isalpha())  # remove non-aminoacids from alignment
         peptides_in_this_protein = set()  # make sure we only count peptides once per protein
-        for j in xrange(len(aminoacids) - 8):
+        for j in range(len(aminoacids) - 8):
             seq = str(aminoacids[j:j+9])
             if seq not in peptides_in_this_protein:
                 peptides_in_this_protein.add(seq)
@@ -351,7 +351,7 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
 @click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
 def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes,
                       cleavage_window, top_proteins, top_immunogen, top_alleles):
-    epitopes = utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).keys()
+    epitopes = list(utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).keys())
     LOGGER.info('Loaded %d epitopes', len(epitopes))
 
     LOGGER.info('Predicting cleavage sites of all pairs...')
@@ -388,7 +388,7 @@ def compute_overlaps_process(epitope, other_epitopes):
 def compute_overlaps(input_epitopes, output_overlaps, processes):
     ''' Compute the all-pairs overlap cost for the epitopes
     '''
-    epitopes = utilities.load_epitopes(input_epitopes).keys()
+    epitopes = list(utilities.load_epitopes(input_epitopes).keys())
     LOGGER.info('Loaded %d epitopes', len(epitopes))
 
     LOGGER.info('Computing overlaps of all pairs...')

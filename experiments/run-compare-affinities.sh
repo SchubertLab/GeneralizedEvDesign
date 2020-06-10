@@ -10,7 +10,7 @@ for immunogen in "netmhcpan-rank" "pickpocket" "mhcflurry"; do
             CLEAVAGES_OPTS="--top-immunogen 1500" \
             CLEAVAGES_NAME="cleavages-$immunogen-1500ig" \
             EPITOPES_NAME="made-$immunogen-epitopes" \
-            BASE_DIR="${dir%/}" \
+            BASE_DIR="${dir%/}"
 
         if [ ! -f "${dir}/made-$immunogen-tradeoff.csv" ]; then
             python tradeoff.py \

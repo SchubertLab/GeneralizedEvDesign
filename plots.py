@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib as mpl
 import pandas as pd
+from scipy.stats import pearsonr, spearmanr
 import seaborn as sns
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import pdist
@@ -260,9 +261,9 @@ df.head()
 df[(df.vax == 'OptiTope') & (df.metric == 'norm_prot_coverage')].sort_values('size')
 
 df = df.replace({
-    'optitope': 'OptiTope',
-    'mosaic-o4': 'm4',
-    'mosaic-o8': 'm8',
+    'optitope': 'EpiMix',
+    'mosaic-o4': '4-mosaic',
+    'mosaic-o8': '8-mosaic',
 })
 
 # +
@@ -340,7 +341,7 @@ tt4.set_position((0.53, 0.0))
 
 ax1.legend(loc='upper left')
 
-plt.savefig('plots/advantage.tiff', bbox_inches='tight')
+plt.savefig('plots/advantage.eps', bbox_inches='tight')
 # -
 
 # # cocktail (fig. 4)
@@ -460,7 +461,7 @@ plt.legend(handles=[
     mpatches.Patch(facecolor=color[0], edgecolor='k', label='Polypep.'),
     #mpatches.Patch(facecolor='#ffffff', edgecolor='k', label='Cocktail'),
     mpatches.Patch(facecolor=color[4], edgecolor='k', label='Cocktail'),
-    mpatches.Patch(facecolor=color[5], edgecolor='k', label='OptiTope'),
+    mpatches.Patch(facecolor=color[5], edgecolor='k', label='EpiMix'),
     mpatches.Patch(facecolor=color[6], edgecolor='k', label='High imm.'),
 ])
 plt.grid(False, axis='x')
@@ -555,7 +556,7 @@ ax2.set_title('Top: Short mosaic - Bottom: Long mosaic')
 ax2.tick_params(axis='x', labeltop=False)
 fig.set_tight_layout(True)
 fig.subplots_adjust(left=0, bottom=-0.35, right=1, top=1, wspace=0, hspace=0)
-fig.savefig('plots/epitopes-positions.pdf', bbox_inches='tight')
+fig.savefig('plots/epitopes-positions.tiff', bbox_inches='tight')
 
 # ## find immunogenicity by position
 
@@ -790,78 +791,151 @@ for i in range(len(corrs)):
 #sns.despine(fig, ax2, top=True, right=False)
 
 fig.savefig('plots/positions-entropy.tiff', bbox_inches='tight')
+
+
 # -
 
-# # compare rank and ic50 immunogenicities
+# # compare rank and ic50 immunogenicities (fig. 8)
 
 # +
-rank_ig_rank, ic50_ig_rank, cleav_rank = [], [], []
-rank_ig_ic50, ic50_ig_ic50, cleav_ic50 = [], [], []
-all_epi_ic50, all_epi_ranks = [], []
-for i in range(1, 6):
-    epi_rank_ig = {}
-    with open(f'experiments/results/nef-300-{i}/made-netmhcpan-rank-epitopes.csv') as f:
+def get_epitope_immunogen(bootstrap, method):
+    if method == 'netmhcpan':
+        mm = ''
+    else:
+        mm = method + '-'
+
+    igs = {}
+    with open(f'experiments/results/nef-300-{bootstrap}/made-{mm}epitopes.csv') as f:
         header = next(f).strip().split(',')
         for row in f:
             row = dict(zip(header, row.strip().split(',')))
-            epi_rank_ig[row['epitope']] = float(row['immunogen'])
+            igs[row['epitope']] = float(row['immunogen'])
+    return igs
 
-    epi_ic50_ig = {}
-    with open(f'experiments/results/nef-300-{i}/made-epitopes.csv') as f:
-        header = next(f).strip().split(',')
-        for row in f:
-            row = dict(zip(header, row.strip().strip().split(',')))
-            epi_ic50_ig[row['epitope']] = float(row['immunogen'])
-    
-    with open(f'experiments/results/nef-300-{i}/made-netmhcpan-rank-tradeoff.csv') as f:
-        header = next(f).strip().split(',')
-        for row in f:
-            row = dict(zip(header, row.strip().strip().split(',')))
-            rank_ig_rank.append(sum(epi_rank_ig[e] for e in row['epitopes'].split(';')))
-            ic50_ig_rank.append(sum(epi_ic50_ig[e] for e in row['epitopes'].split(';')))
-            cleav_rank.append(float(row['cleavage']))
-            all_epi_ranks.append(set(row['epitopes'].split(';')))
 
-    with open(f'experiments/results/nef-300-{i}/made-tradeoff.csv') as f:
+def get_tradeoff_ranks(bootstrap, method, immunogens):
+    if method == 'netmhcpan':
+        mm = ''
+    else:
+        mm = method + '-'
+
+    epi_igs = []
+    with open(f'experiments/results/nef-300-{bootstrap}/made-{mm}tradeoff.csv') as f:
         header = next(f).strip().split(',')
         for row in f:
             row = dict(zip(header, row.strip().strip().split(',')))
-            rank_ig_ic50.append(sum(epi_rank_ig[e] for e in row['epitopes'].split(';')))
-            ic50_ig_ic50.append(sum(epi_ic50_ig[e] for e in row['epitopes'].split(';')))
-            cleav_ic50.append(float(row['cleavage']))
-            all_epi_ic50.append(set(row['epitopes'].split(';')))
-    
-pd.DataFrame({
-    'iou': [len(r & i) / len(r | i) for r, i in zip(all_epi_ranks, all_epi_ic50)],
-    'cnt': [len(r & i) for r, i in zip(all_epi_ranks, all_epi_ic50)],
-}).describe()
+            epi_igs.append({
+                method: sum(ig[e] for e in row['epitopes'].split(';'))
+                for method, ig in immunogens.items()
+            })
+            epi_igs[-1]['optimize'] = method
+            epi_igs[-1]['epitopes'] = row['epitopes']
+            epi_igs[-1]['cleavage'] = float(row['cleavage'])
+    return epi_igs
+
+
 # -
 
-plt.scatter(np.array(rank_ig_ic50) / 10, np.array(ic50_ig_ic50) / 10,
-            c=cleav_ic50, marker='^', label='Maximize IC50')
-plt.xlabel('Mean Rank')
-plt.ylabel('Mean IC50')
-plt.scatter(np.array(rank_ig_rank) / 10, np.array(ic50_ig_rank) / 10,
-            c=cleav_rank, marker='s', label='Maximize Rank')
-xticks, _ = plt.xticks()
-plt.xticks(xticks, 100 - xticks)
-plt.colorbar()
-plt.legend()
-plt.show()
+all_igs = []
+for i in range(1, 6):
+    immunogens = {
+        method: get_epitope_immunogen(i, method)
+        for method in ['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']
+    }
+    for method in ['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']:
+        all_igs.extend(get_tradeoff_ranks(i, method, immunogens))
 
-plt.hexbin(100-np.array(all_epi_ranks), all_epi_ic50, bins='log')
-plt.colorbar()
-plt.xlabel('Rank Ig.')
-plt.ylabel('IC50 Ig.')
-plt.title('Epitope Immunogenicity')
-#plt.xticks(range(0, 101, 20), range(100, -1, -20))
-plt.xlim(3, 100)
-plt.ylim(0, 0.3)
-plt.show()
+df = pd.DataFrame([
+    {
+        'method': m,
+        'epitope': e,
+        'immunog': i
+    }
+    for m, es in immunogens.items()
+    for e, i in es.items()
+]).pivot(index='epitope', columns='method', values='immunog')
+df
 
-# QUESTION: why is rank always larger than 2/3 %
-#
-# ANSWER: it is a weighted average of rank across all alleles
+df.corr()
+
+# within-method immunogenicity variation
+for col in df:
+    vals = df[col].sort_values()
+    windows = []
+    from tqdm import tqdm
+    j = k = 0
+    for i in range(len(vals)):
+        while j < i and (vals[i] - vals[j]) / vals[i] > 0.005:
+            j += 1
+        while k < len(vals) and (vals[k] - vals[i]) / vals[i] < 0.005:
+            k += 1
+        windows.append(k - j + 1)
+
+    print(col)
+    print(pd.Series(windows).describe())
+
+df = pd.DataFrame(all_igs)
+df
+
+# +
+set_font_size(6)
+fig = plt.figure(figsize=(6.7261, 6.7261 * 3 / 4), dpi=300)
+axes = fig.subplots(4, 4)
+
+renames = {
+    'netmhcpan': 'NetMHCpan (IC$_{50}$)',
+    'netmhcpan-rank': 'NetMHCpan (rank)',
+    'pickpocket': 'PickPocket (IC$_{50}$)',
+    'mhcflurry': 'MHCflurry (IC$_{50}$)',
+}
+
+for i, ig_method in enumerate(['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']):
+    for j, optimize in enumerate(['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']):
+        ax = axes[i, j]
+        data = df[df['optimize'] == optimize]
+        
+        if i == j:
+            sns.distplot(data[optimize].values, ax=ax, rug=True, kde=False, norm_hist=False, bins=8)
+        else:
+            ax.scatter(data[optimize], data[ig_method], c=data['cleavage'], cmap='viridis', marker='.')
+            ax.set_ylim((df[ig_method].min(), df[ig_method].max()))
+        
+            e1 = [set(e.split(';')) for e in df[df['optimize'] == optimize].sort_values('cleavage')['epitopes'].values]
+            e2 = [set(e.split(';')) for e in df[df['optimize'] == ig_method].sort_values('cleavage')['epitopes'].values]
+            ious = [len(a & b) / len(a | b) for a, b in zip(e1, e2)]
+            shareds = [len(a & b) for a, b in zip(e1, e2)]
+            iou = '{:.2f} ({:.2f} - {:.2f})'.format(*np.percentile(ious, [50, 25, 75]))
+            shared = '{:.0f} ({:.0f} - {:.0f})'.format(*np.percentile(shareds, [50, 25, 75]))
+            
+            if 'rank' not in optimize:
+                cname, (corr, pval) = 'Pearson', pearsonr(data[optimize], data[ig_method])
+            else:
+                cname, (corr, pval) = 'Spearman', spearmanr(data[optimize], data[ig_method])
+            
+            if i == 1 and j == 0:
+                xy = 0.975, 0.025
+                ha, va = 'right', 'bottom'
+            else:
+                xy = 0.025, 0.975
+                ha, va = 'left', 'top'
+                
+            ax.annotate(f'IoU: {iou}\nShared epitopes: {shared}\n{cname}: {corr:.2f} ($p$={pval:.0e})',
+                        xy=xy, xycoords='axes fraction', ha=ha, va=va)
+            
+        ax.tick_params(axis='y', rotation=90)
+        ax.set_xlim((data[optimize].min(), data[optimize].max()))
+        sns.despine(fig, ax)
+        ax.grid(False)
+        
+        if i == 3:
+            ax.set_xlabel('Optimize\n' + renames.get(optimize, optimize))
+        if j == 0:
+            ax.set_ylabel('Immunogenicity\n' + renames.get(ig_method, ig_method))
+            
+
+fig.tight_layout()
+plt.savefig('plots/Fig8.tiff', bbox_inches='tight')
+# -
 
 # # compare optimized cleavage with shuffled epitopes
 

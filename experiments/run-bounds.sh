@@ -50,8 +50,8 @@ do
     done
 
     python evaluation.py aggregate \
-           "experiments/results/nef-300-*/ig-bound-*-evaluation.csv" \
+           "experiments/results/nef-300-*/ig-bound-*-$ig_pred-evaluation.csv" \
            --path-format "experiments/results/nef-300-(?P<rep>\d+)/ig-bound-(?P<vax>\w+)-a(?P<aa>\d+)-$ig_pred-evaluation.csv" \
-           -s aa -s vax -S experiments/results/ig-bound-evaluation-aggregate.csv
+           -s aa -s vax -S experiments/results/ig-bound-$ig_pred-evaluation-aggregate.csv
 done
 

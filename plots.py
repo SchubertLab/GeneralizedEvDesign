@@ -39,6 +39,11 @@ plt.rc('text', usetex=True)
 plt.rc('font', family='serif')
 # -
 
+FIG_FORMAT = 'pdf'
+FIG_ORDER = {f: i + 3 for i, f in enumerate([
+    'pareto', 'cocktail', 'advantage', 'entropy', 'bound', 'immunogens', 'shuffled', 'bound_igs'
+])}
+
 # # comparison with fischer
 
 xx = np.random.random((10, 2))
@@ -131,85 +136,180 @@ plt.rc('grid', lw=0.8)
 plt.rc('lines', lw=0.8, markersize=4)
 plt.rc('ytick.major', size=3, width=0.6)
 
+
 # # bound plot (fig. 7)
 
-df = pd.read_csv('experiments/results/ig-bound-evaluation-aggregate.csv')
-aaa = df.columns.tolist()
-aaa[0] = 'metric'
-df.columns = aaa
-
-max_ig = df[df.metric == 'immunogen']['mean'].max()
-df.loc[df.metric == 'immunogen', 'mean'] /= max_ig
-df.loc[df.metric == 'immunogen', 'std'] /= max_ig
-
-piv = df[
-    df.metric.isin(['conservation', 'immunogen', 'norm_prot_coverage', 'rel_pop_coverage'])
-].pivot_table('mean', 'vax', ['metric', 'aa'])
-piv
-
-vaxmap = {
-    'coverage': 'Pathogen\ncoverage',
-    'norm_prot_coverage': 'Pathogen\ncoverage',
-    'immunogen': 'Immunogenicity',
-    'conservation': 'Conservation',
-    'rel_pop_coverage': 'Population\ncoverage',
-}
-piv = piv.rename(columns=vaxmap, index=vaxmap)
-piv.index.name = 'Maximization Objective'
-piv
-
 # +
-pivot_mean = df[
-    df.metric.isin(['conservation', 'immunogen', 'norm_prot_coverage', 'rel_pop_coverage'])
-].pivot_table('mean', 'aa', ['metric', 'vax']).rename(columns=vaxmap)
+def get_aggregate_mean_std(immunogen):
+    df = pd.read_csv(f'experiments/results/ig-bound-{immunogen}-evaluation-aggregate.csv')
+    cols = df.columns.tolist()
+    cols[0] = 'metric'
+    df.columns = cols
 
-pivot_std = df[
-    df.metric.isin(['conservation', 'immunogen', 'norm_prot_coverage', 'rel_pop_coverage'])
-].pivot_table('std', 'aa', ['metric', 'vax']).rename(columns=vaxmap)
+    vaxmap = {
+        'coverage': 'Pathogen\ncoverage',
+        'norm_prot_coverage': 'Pathogen\ncoverage',
+        'immunogen': 'Immunogenicity',
+        'conservation': 'Conservation',
+        'rel_pop_coverage': 'Population\ncoverage',
+    }
+
+    pivot_mean = df[
+        df.metric.isin(['conservation', 'immunogen', 'norm_prot_coverage', 'rel_pop_coverage'])
+    ].pivot_table('mean', 'aa', ['metric', 'vax']).rename(columns=vaxmap)
+
+    pivot_std = df[
+        df.metric.isin(['conservation', 'immunogen', 'norm_prot_coverage', 'rel_pop_coverage'])
+    ].pivot_table('std', 'aa', ['metric', 'vax']).rename(columns=vaxmap)
+
+    max_ig = pivot_mean['Immunogenicity'].max().max()
+    pivot_mean['Immunogenicity'] /= max_ig
+    pivot_std['Immunogenicity'] /= max_ig
+    
+    return max_ig, pivot_mean, pivot_std
+
+
+max_ig, pivot_mean, pivot_std = get_aggregate_mean_std('netmhcpan')
+pivot_mean.T
 
 # +
 set_font_size(6)
 plt.rc('legend', title_fontsize=8)
 
 fig = plt.figure(figsize=(5, 5 / 4.), dpi=300)
-grid = gridspec.GridSpec(1, 4, height_ratios=[1], width_ratios=[1, 1, 1, 1],
-                         hspace=0.05, wspace=0.1, left=0, bottom=0, right=1, top=1,
-                         figure=fig)
+
+axes = fig.subplots(1, 4, gridspec_kw={
+    'height_ratios': [1],
+    'width_ratios': [1, 1, 1, 1],
+    'hspace': 0.05,
+    'wspace': 0.1,
+    'left': 0,
+    'bottom': 0,
+    'right': 1,
+    'top': 1,
+})
+
 
 letters = ['(a) ', '(b) ', '(c) ', ' (d) ']
-for i, (gg, col) in enumerate(zip(grid, pivot_mean.columns.levels[0])):
-    ax = fig.add_subplot(gg)
+for i, (ax, col) in enumerate(zip(axes, pivot_mean.columns.levels[0])):
     pivot_mean[col].plot.line(ax=ax, marker='.', yerr=pivot_std[col], color=theme_dark)
+
     ax.set_ylim(0, 1.05)
     ax.set_xlim(40, 140)
-    
+
     # title
     if col == 'Immunogenicity':
         ax.set_title(letters[i] + 'Immunogenicity\n100\%% = %.3f' % max_ig)
     else:
         ax.set_title(letters[i] + col)
-    
+
     # y axis
-    #ax.set_yticks([0., 0.2, 0.4, 0.6, 0.8, 1.0])
     ax.set_yticks([0., 0.25, 0.5, 0.75, 1.0])
-    if i > 0:
-        ax.set_yticklabels([])
-    else:
-        #ax.set_yticklabels(['0\%', '20\%', '40\%', '60\%', '80\%', '100\%'])
-        ax.set_yticklabels(['0\%', '25\%', '50\%', '75\%', '100\%'])
-    
+    ax.set_yticklabels([] if i > 0 else [f'{i}\%' for i in range(0, 101, 25)])
+
     # x axis
     ax.set_xlabel('')
     ax.set_xticks([45, 72, 90, 135])
-    
+
     # legend
     if i == 3:
         ax.legend(loc='lower right', title='Optimize')
     else:
         ax.get_legend().remove()
 
+    ax.grid(False, axis='x')
+    sns.despine(fig, ax)
+
 fig.suptitle('Length in amino acids', y=-0.25)
-plt.savefig('plots/bounds.tiff', bbox_inches='tight')
+
+plt.savefig(f'plots/Fig{FIG_ORDER["bound"]}.{FIG_FORMAT}', bbox_inches='tight')
+# -
+
+# # bound plot with different immunogenicities (fig. 10)
+
+# +
+pretty_ig = dict(zip([
+    'netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry'
+], ['MHCflurry', 'NetMHCpan (IC$_{50}$)', 'NetMHCpan (rank)', 'PickPocket']))
+
+bound_mean_data, bound_std_data = [], []
+for ig in ['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']:
+    _, pivot_mean, pivot_std = get_aggregate_mean_std(ig)
+    
+    # here we add a new level to the index
+    # https://stackoverflow.com/a/42094658
+    bound_mean_data.append(pd.concat([pivot_mean.T], keys=[pretty_ig[ig]], names=['Immunogenicity']))
+    bound_std_data.append(pd.concat([pivot_std.T], keys=[pretty_ig[ig]], names=['Immunogenicity']))
+
+bound_mean_data = pd.concat(bound_mean_data).T
+bound_std_data = pd.concat(bound_std_data).T
+
+bound_mean_data
+
+# +
+set_font_size(6)
+plt.rc('legend', title_fontsize=8)
+
+fig = plt.figure(figsize=(5, 5 / 4.), dpi=300)
+
+axes = fig.subplots(1, 4, gridspec_kw={
+    'height_ratios': [1],
+    'width_ratios': [1, 1, 1, 1],
+    'hspace': 0.05,
+    'wspace': 0.1,
+    'left': 0,
+    'bottom': 0,
+    'right': 1,
+    'top': 1,
+})
+
+letters = ['(a) ', '(b) ', '(c) ', ' (d) ']
+linestyles = ['-', '--', ':', '-.']
+markerstyles = ['o', '^', 's', 'v']
+for ls, ms, ig in zip(linestyles, markerstyles, bound_mean_data.columns.levels[0]):
+    for i, (ax, col) in enumerate(zip(axes, bound_mean_data.columns.levels[1])):
+        bound_mean_data[ig][col].plot.line(ax=ax, marker=ms, yerr=pivot_std[col], color=theme_dark, linestyle=ls, markersize=2)
+
+        ax.set_ylim(0, 1.05)
+        ax.set_xlim(40, 140)
+        
+        ax.set_title(letters[i] + col)
+
+        # y axis
+        ax.set_yticks([0., 0.25, 0.5, 0.75, 1.0])
+        ax.set_yticklabels([] if i > 0 else [f'{i}\%' for i in range(0, 101, 25)])
+
+        # x axis
+        ax.set_xlabel('')
+        ax.set_xticks([45, 72, 90, 135])
+
+        ax.get_legend().remove()
+
+        ax.grid(False, axis='x')
+        sns.despine(fig, ax)
+
+
+axes[-1].legend([
+    mpl.patches.Patch(alpha=0)  # fake patch to hold the title
+] + [
+    plt.Line2D((-1, -2), (-1, -2), c='k', marker=ms, markersize=2, linestyle=ls)
+    for ms, ls in zip(markerstyles, linestyles)
+] + [
+    mpl.patches.Patch(alpha=0)  # fake patch to hold the title
+] + [
+    plt.Line2D((-1, -2), (-1, -2), c=c) for c in theme_dark
+], [
+    r'\footnotesize Immunogenicity'
+] + [
+    ig for ig in bound_mean_data.columns.levels[0]
+] + [
+    r'\footnotesize Optimize'
+] + [
+    opt.replace('\n', ' ') for opt in bound_mean_data.columns.levels[1]
+], loc='lower right', ncol=2)
+
+fig.suptitle('Length in amino acids', y=-0.25)
+plt.savefig(f'plots/Fig{FIG_ORDER["bound_igs"]}.{FIG_FORMAT}', bbox_inches='tight')
 # -
 
 # # pareto plot (fig. 3)
@@ -241,7 +341,8 @@ plt.xlabel('Cleavage Score')
 plt.ylabel('Immunogenicity')
 plt.subplots_adjust(hspace=0, wspace=0, left=0, bottom=0, right=1, top=1)
 #sns.despine()
-plt.savefig('plots/pareto.pdf', bbox_inches='tight')
+
+plt.savefig(f'plots/Fig{FIG_ORDER["pareto"]}.{FIG_FORMAT}', bbox_inches='tight')
 # -
 
 # # advantage (fig. 5)
@@ -339,9 +440,19 @@ tt2.set_position((0.53, 0.82))
 tt3.set_position((0.53, 0.0))
 tt4.set_position((0.53, 0.0))
 
+ax1.grid(False, axis='x')
+ax2.grid(False, axis='x')
+ax3.grid(False, axis='x')
+ax4.grid(False, axis='x')
+
+sns.despine(fig, ax1)
+sns.despine(fig, ax2)
+sns.despine(fig, ax3)
+sns.despine(fig, ax4)
+
 ax1.legend(loc='upper left')
 
-plt.savefig('plots/advantage.eps', bbox_inches='tight')
+plt.savefig(f'plots/Fig{FIG_ORDER["advantage"]}.{FIG_FORMAT}', bbox_inches='tight')
 # -
 
 # # cocktail (fig. 4)
@@ -446,7 +557,7 @@ res = res.rename(index={
 
 # +
 set_font_size(8)
-fig, ax = plt.subplots(figsize=(5, 5 * 2 / 3.), dpi=300)
+fig, ax = plt.subplots(figsize=(5, 5 * 1 / 2.), dpi=300)
 
 #color = [theme_light[0]] * 4 + [theme_light[1], theme_light[2]]
 #ax.bar(x=[x - 0.25 for x in range(5)], width=0.32, height=res.mosaic, align='edge', edgecolor='k', linewidth=2, color='white')
@@ -469,7 +580,7 @@ plt.grid(False, axis='x')
 plt.subplots_adjust(hspace=0, wspace=0, left=0, bottom=0, right=1, top=1)
 #sns.despine()
 
-plt.savefig('plots/cocktail.tiff', bbox_inches='tight')
+plt.savefig(f'plots/Fig{FIG_ORDER["cocktail"]}.{FIG_FORMAT}', bbox_inches='tight')
 
 
 # -
@@ -556,7 +667,7 @@ ax2.set_title('Top: Short mosaic - Bottom: Long mosaic')
 ax2.tick_params(axis='x', labeltop=False)
 fig.set_tight_layout(True)
 fig.subplots_adjust(left=0, bottom=-0.35, right=1, top=1, wspace=0, hspace=0)
-fig.savefig('plots/epitopes-positions.tiff', bbox_inches='tight')
+#fig.savefig('plots/epitopes-positions.tiff', bbox_inches='tight')
 
 # ## find immunogenicity by position
 
@@ -790,7 +901,7 @@ for i in range(len(corrs)):
 
 #sns.despine(fig, ax2, top=True, right=False)
 
-fig.savefig('plots/positions-entropy.tiff', bbox_inches='tight')
+plt.savefig(f'plots/Fig{FIG_ORDER["entropy"]}.{FIG_FORMAT}', bbox_inches='tight')
 
 
 # -
@@ -862,7 +973,6 @@ df.corr()
 for col in df:
     vals = df[col].sort_values()
     windows = []
-    from tqdm import tqdm
     j = k = 0
     for i in range(len(vals)):
         while j < i and (vals[i] - vals[j]) / vals[i] > 0.005:
@@ -934,51 +1044,150 @@ for i, ig_method in enumerate(['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhc
             
 
 fig.tight_layout()
-plt.savefig('plots/Fig8.tiff', bbox_inches='tight')
+plt.savefig(f'plots/Fig{FIG_ORDER["immunogens"]}.{FIG_FORMAT}', bbox_inches='tight')
 # -
 
-# # compare optimized cleavage with shuffled epitopes
+# # compare optimized cleavage with shuffled epitopes (fig. 9)
 
 from data_preparation import get_cleavage_score_process
 
-immunogen, cleavage = [], []
+records = []
 for i in tqdm(range(1, 6)):
     with open(f'experiments/results/nef-300-{i}/made-tradeoff.csv') as f:
         header = next(f).strip().split(',')
-        for row in tqdm(f, leave=False, total=10):
+        for j, row in tqdm(enumerate(f), leave=False, total=10):
             row = dict(zip(header, row.strip().split(',')))
             epis = row['epitopes'].split(';')
+
+            scores = get_cleavage_score_process(
+                penalty=0.1, cleavage_model='pcm', window_size=5,
+                epitopes=list(zip(epis[:-1], epis[1:]))
+            )
+            assert np.allclose(sum(x[2] for x in scores), float(row['cleavage']))
             
-            immunogen.append(float(row['immunogenicity']))
-            cleavage.append(float(row['cleavage']))
+            records.append({
+                'immunogen': float(row['immunogenicity']),
+                'cleavage': float(row['cleavage']),
+                'positive': sum(x[2] > 0 for x in scores),
+                'shuffled': False,
+                'bootstrap': i,
+                'index': j,
+                'epis': row['epitopes'],
+            })
             
-            for i in range(50):
+            for k in range(50):
                 np.random.shuffle(epis)
-                immunogen.append(float(row['immunogenicity']))
-                cleavage.append(sum(x[2] for x in get_cleavage_score_process(
+                scores = get_cleavage_score_process(
+                    # always make sure these params are equal to
+                    # what was used for the optimization
                     penalty=0.1, cleavage_model='pcm', window_size=5,
                     epitopes=list(zip(epis[:-1], epis[1:]))
-                )))
+                )
+                
+                records.append({
+                    'immunogen': float(row['immunogenicity']),
+                    'cleavage': sum(x[2] for x in scores),
+                    'positive': sum(x[2] > 0 for x in scores),
+                    'shuffled': True,
+                    'bootstrap': i,
+                    'index': j,
+                    'rep': k,
+                    'epis': ';'.join(epis)
+                })
 
-plt.scatter(immunogen, cleavage)
-plt.xlabel('Immunogenicity')
-plt.ylabel('Cleavage score')
+df = pd.DataFrame(records)
+df
+
+for i, g in df.groupby(['bootstrap', 'index']):
+    opt = g[g['rep'].isna()].iloc[0]
+    best = g[~g['rep'].isna()].loc[g[~g['rep'].isna()].cleavage.idxmin()]
+    
+    print(opt['cleavage'], opt['epis'])
+    print(best['cleavage'], best['epis'])
+    print('---')
 
 # +
-df = pd.DataFrame({'immunogen': immunogen, 'cleavage': cleavage})
+# number of cleavage sites with positive score
+# False = shuffled, True = optimized
 
-# overall decrease in cleavage score
-df.groupby('immunogen').apply(lambda g:
-    100 * (1 - g['cleavage'].iloc[1:] / g['cleavage'].iloc[0])
-).describe()
+df.groupby(df['rep'].isna()).apply(lambda g: g['positive'].describe())
+
+
 # -
 
-# decrease by immunogenicity
-df.groupby('immunogen').apply(lambda g: (
-    # compute percent increase compared to first (the optimized one)
-    100 * (1 - g['cleavage'].iloc[1:] / g['cleavage'].iloc[0])
-).describe()) #.plot(y='max')
+def legend_without_duplicate_labels(ax, **kwargs):
+    # https://stackoverflow.com/a/56253636/521776
+    handles, labels = ax.get_legend_handles_labels()
+    unique = [(h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i]]
+    ax.legend(*zip(*unique), **kwargs)
 
+
+# +
+fig = plt.figure(figsize=(5, 3), dpi=300)
+ax2, ax1 = fig.subplots(1, 2)
+ax11 = ax1.twiny()
+
+order = df.groupby([
+    'bootstrap', 'index'
+]).agg({
+    'immunogen': 'min',
+    'cleavage': 'mean'
+}).sort_values([
+    'bootstrap',
+    'immunogen'
+]).reset_index()
+
+
+for i, row in order.iterrows():
+    g = df[(df['bootstrap'] == row['bootstrap']) & (df['index'] == row['index'])]
+    cleavs = g['cleavage'].values
+    
+    assert g['rep'].isna().sum() == 1
+    reduction = g[~g['rep'].isna()]['cleavage'] / g[g['rep'].isna()]['cleavage'].values[0]
+    reduction = 100 * (1 - reduction)
+    
+    #ax2.boxplot([reduction], positions=[i])
+    ax2.scatter(reduction, [i] * len(reduction), marker='.',
+                c=f'C{int(row["bootstrap"]) + 1}')
+    ax2.scatter([np.median(reduction)], [i], marker='x', c='k', label='Median')
+
+pos = 0
+for i, g in order.groupby(['bootstrap']):
+    ax1.plot(g['immunogen'], [pos + j for j in range(len(g))], 'C0')
+    ax11.plot(-g['cleavage'], [pos + j for j in range(len(g))], 'C1')
+    pos += len(g)
+
+ax1.grid(False)
+ax11.grid(False)
+ax2.grid(False)
+ax1.set_yticks([])
+ax2.set_yticks([])
+ax1.set_title('(b)')
+ax2.set_title('(a)')
+ax11.set_xlabel('Cleavage Score', color='C1')
+ax1.set_xlabel('Vaccine immunogenicity', color='C0')
+
+fig.subplots_adjust(wspace=0.)
+ax1.set_ylim(ax2.get_ylim())
+ax1.grid(False, axis='x')
+ax11.grid(False, axis='x')
+ax2.grid(False, axis='x')
+
+group_sizes = [0] + order.groupby(['bootstrap']).agg('size').cumsum().tolist()
+ax2.set_yticks([(a + b) / 2 for a, b in zip(group_sizes[:-1], group_sizes[1:])])
+ax2.set_yticklabels(range(1, len(group_sizes)))
+ax2.set_ylabel('Bootstrap')
+ax2.set_xlabel('Percent decrease in cleavage score')
+sns.despine(fig, ax1)
+sns.despine(fig, ax2)
+
+legend_without_duplicate_labels(ax2)
+
+fig.tight_layout()
+plt.savefig(f'plots/Fig{FIG_ORDER["shuffled"]}.{FIG_FORMAT}', bbox_inches='tight')
+
+
+# -
 
 # # show peptides overlap
 

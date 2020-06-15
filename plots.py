@@ -192,7 +192,12 @@ axes = fig.subplots(1, 4, gridspec_kw={
 
 letters = ['(a) ', '(b) ', '(c) ', ' (d) ']
 for i, (ax, col) in enumerate(zip(axes, pivot_mean.columns.levels[0])):
-    pivot_mean[col].plot.line(ax=ax, marker='.', yerr=pivot_std[col], color=theme_dark)
+    pivot_mean[col][
+        # ensure same ordering
+        pivot_mean.columns.levels[1]
+    ].plot.line(
+        ax=ax, marker='.', yerr=pivot_std[col], color=theme_dark
+    )
 
     ax.set_ylim(0, 1.05)
     ax.set_xlim(40, 140)
@@ -221,7 +226,6 @@ for i, (ax, col) in enumerate(zip(axes, pivot_mean.columns.levels[0])):
     sns.despine(fig, ax)
 
 fig.suptitle('Length in amino acids', y=-0.25)
-
 plt.savefig(f'plots/Fig{FIG_ORDER["bound"]}.{FIG_FORMAT}', bbox_inches='tight')
 # -
 
@@ -230,7 +234,7 @@ plt.savefig(f'plots/Fig{FIG_ORDER["bound"]}.{FIG_FORMAT}', bbox_inches='tight')
 # +
 pretty_ig = dict(zip([
     'netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry'
-], ['MHCflurry', 'NetMHCpan (IC$_{50}$)', 'NetMHCpan (rank)', 'PickPocket']))
+], ['NetMHCpan (IC$_{50}$)', 'NetMHCpan (\%rank)', 'PickPocket (IC$_{50}$)', 'MHCflurry (IC$_{50}$)']))
 
 bound_mean_data, bound_std_data = [], []
 for ig in ['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']:
@@ -247,28 +251,80 @@ bound_std_data = pd.concat(bound_std_data).T
 bound_mean_data
 
 # +
+differences = pd.DataFrame([
+    pd.Series(np.abs((mean1.values - mean2.values).ravel()))
+    for i1 in range(len(bound_mean_data.columns.levels[0]) - 1)
+    for i2 in range(i1 + 1, len(bound_mean_data.columns.levels[0]))
+    for m in bound_mean_data.columns.levels[2]
+    for mean1, mean2 in [[
+        bound_mean_data.loc[:, (bound_mean_data.columns.levels[0][i1], slice(None), m)],
+        bound_mean_data.loc[:, (bound_mean_data.columns.levels[0][i2], slice(None), m)],
+    ]]
+])
+
+differences.index = pd.MultiIndex.from_tuples([
+    ('{}\n{}'.format(
+        bound_mean_data.columns.levels[0][i1],
+        bound_mean_data.columns.levels[0][i2],
+    ), m)
+    for i1 in range(len(bound_mean_data.columns.levels[0]) - 1)
+    for i2 in range(i1 + 1, len(bound_mean_data.columns.levels[0]))
+    for m in bound_mean_data.columns.levels[2]
+])
+
+#differences = differences.T
+#differences.head()
+differences
+# -
+
+pd.DataFrame(differences.values.ravel()).describe().T
+
+# +
 set_font_size(6)
-plt.rc('legend', title_fontsize=8)
+plt.rc('legend', title_fontsize=6, fontsize=5)
 
-fig = plt.figure(figsize=(5, 5 / 4.), dpi=300)
+fig = plt.figure(figsize=(5, 3), dpi=300)
 
-axes = fig.subplots(1, 4, gridspec_kw={
-    'height_ratios': [1],
-    'width_ratios': [1, 1, 1, 1],
-    'hspace': 0.05,
-    'wspace': 0.1,
-    'left': 0,
-    'bottom': 0,
-    'right': 1,
-    'top': 1,
-})
+root_gs = mpl.gridspec.GridSpec(
+    1, 2, figure=fig, width_ratios=[2, 1],
+)
+
+left_gs = mpl.gridspec.GridSpecFromSubplotSpec(
+    2, 2, subplot_spec=root_gs[0], hspace=0.3, wspace=0.1
+)
+
+ax = fig.add_subplot(root_gs[1])
+for i, idx in enumerate(differences.index):
+    box = ax.boxplot(differences.loc[idx], vert=False, patch_artist=True, positions=[i], sym='.')
+    for key in box:
+        for item in box[key]:
+            item.set_color(theme_dark[i % 3])
+
+ax.yaxis.tick_right()
+ax.set_yticks([
+    y - 0.5 for y in range(0, len(differences), len(differences.index.levels[1]))
+], minor=True)
+ax.set_yticks(range(1, len(differences), len(differences.index.levels[1])), minor=False)
+ax.set_yticklabels(differences.index.levels[0])
+ax.grid(True, axis='y', which='minor')
+ax.grid(False, axis='y', which='major')
+ax.set_xticklabels([f'{x * 100:.0f}\%' for x in ax.get_xticks()])
+ax.set_title('(e) Absolute difference')
+ax.set_xlim(ax.get_xlim()[::-1])
+sns.despine(ax=ax, left=True, right=False, top=True, bottom=False)
+
+
+axes = [fig.add_subplot(left_gs[i, j]) for i in range(2) for j in range(2)]
 
 letters = ['(a) ', '(b) ', '(c) ', ' (d) ']
 linestyles = ['-', '--', ':', '-.']
 markerstyles = ['o', '^', 's', 'v']
 for ls, ms, ig in zip(linestyles, markerstyles, bound_mean_data.columns.levels[0]):
     for i, (ax, col) in enumerate(zip(axes, bound_mean_data.columns.levels[1])):
-        bound_mean_data[ig][col].plot.line(ax=ax, marker=ms, yerr=pivot_std[col], color=theme_dark, linestyle=ls, markersize=2)
+        bound_mean_data[ig][col][
+            # keep same ordering
+            bound_mean_data.columns.levels[2]
+        ].plot.line(ax=ax, marker=ms, yerr=pivot_std[col], color=theme_dark, linestyle=ls, markersize=2)
 
         ax.set_ylim(0, 1.05)
         ax.set_xlim(40, 140)
@@ -277,16 +333,16 @@ for ls, ms, ig in zip(linestyles, markerstyles, bound_mean_data.columns.levels[0
 
         # y axis
         ax.set_yticks([0., 0.25, 0.5, 0.75, 1.0])
-        ax.set_yticklabels([] if i > 0 else [f'{i}\%' for i in range(0, 101, 25)])
+        ax.set_yticklabels([] if i == 1 or i == 3 else [f'{i}\%' for i in range(0, 101, 25)])
 
         # x axis
-        ax.set_xlabel('')
-        ax.set_xticks([45, 72, 90, 135])
+        ax.set_xlabel('Length in amino acids' if i > 1 else '')
+        ax.set_xticks([45, 72, 90, 135] if i > 1 else [])
 
         ax.get_legend().remove()
 
         ax.grid(False, axis='x')
-        sns.despine(fig, ax)
+        sns.despine(ax=ax)
 
 
 axes[-1].legend([
@@ -308,7 +364,7 @@ axes[-1].legend([
     opt.replace('\n', ' ') for opt in bound_mean_data.columns.levels[1]
 ], loc='lower right', ncol=2)
 
-fig.suptitle('Length in amino acids', y=-0.25)
+fig.tight_layout()
 plt.savefig(f'plots/Fig{FIG_ORDER["bound_igs"]}.{FIG_FORMAT}', bbox_inches='tight')
 # -
 
@@ -994,7 +1050,7 @@ axes = fig.subplots(4, 4)
 
 renames = {
     'netmhcpan': 'NetMHCpan (IC$_{50}$)',
-    'netmhcpan-rank': 'NetMHCpan (rank)',
+    'netmhcpan-rank': 'NetMHCpan (\%rank)',
     'pickpocket': 'PickPocket (IC$_{50}$)',
     'mhcflurry': 'MHCflurry (IC$_{50}$)',
 }
@@ -1022,7 +1078,7 @@ for i, ig_method in enumerate(['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhc
             else:
                 cname, (corr, pval) = 'Spearman', spearmanr(data[optimize], data[ig_method])
             
-            if i == 1 and j == 0:
+            if i == 1:
                 xy = 0.975, 0.025
                 ha, va = 'right', 'bottom'
             else:

@@ -16,22 +16,25 @@
 # %load_ext autoreload
 # %autoreload 2
 
-# +
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+import re
+from collections import defaultdict
+
 import matplotlib as mpl
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr, spearmanr
 import seaborn as sns
+from matplotlib import gridspec
+from scipy import stats
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import pdist
-from collections import defaultdict
-from matplotlib import gridspec
 from scipy.stats import pearsonr, spearmanr
-from scipy import stats
 from tqdm.auto import tqdm
+
+# +
+from data_preparation import get_cleavage_score_process
 
 # use LaTeX fonts in the plot
 # https://ercanozturk.org/2017/12/16/python-matplotlib-plots-in-latex/
@@ -41,8 +44,10 @@ plt.rc('font', family='serif')
 
 FIG_FORMAT = 'pdf'
 FIG_ORDER = {f: i + 3 for i, f in enumerate([
-    'pareto', 'cocktail', 'advantage', 'entropy', 'bound', 'immunogens', 'shuffled', 'bound_igs'
+    'pareto', 'shuffled', 'cocktail', 'advantage', 'entropy', 'bound', 'immunogens', 'bound_igs'
 ])}
+
+FIG_ORDER
 
 # # comparison with fischer
 
@@ -55,7 +60,7 @@ data_frames = []
 for dd in os.listdir(base_dir):
     if not dd.startswith('nef-300-'):
         continue
-    
+
     for df_name in ['fischer', 'fischer-val', 'genev', 'genev-val']:
         df = pd.read_csv('%s/%s/mosaic-%s-vaccine-evaluation.csv' % (base_dir, dd, df_name))
         df['name'] = df_name
@@ -78,7 +83,7 @@ def compare(df, feature, name1, name2):
             pp = 1 - pp
     else:
         tt, pp = 0, 0.5
-    
+
     return np.mean(data1), tt, pp, np.mean(diff), np.std(diff)
 
 
@@ -86,38 +91,41 @@ features = ['norm_prot_coverage', 'conservation', 'rel_pop_coverage', 'immunogen
 
 for val in ['', '-val']:
     print('\ncomparing fischer and genev on %s data' % ('training' if not val else 'validation'))
-    
+
     for feature in features:
         vv, tt, pp, dd, ss = compare(df, feature, 'genev', 'fischer')
-        print('    feature: %20s | value: %.3f difference: %+.3f (%+.3f) - t value: %+.3f - p value: %.3f' % (feature, vv, dd, ss, tt, pp))
+        print('    feature: %20s | value: %.3f difference: %+.3f (%+.3f) - t value: %+.3f - p value: %.3f' %
+              (feature, vv, dd, ss, tt, pp))
 
 for method in ['fischer', 'genev']:
     print('\ncomparing %s on training and validation data' % method)
-    
+
     for feature in features:
         vv, tt, pp, dd, ss = compare(df, feature, method, method + '-val')
-        print('    feature: %20s | value: %.3f difference: %+.3f (%+.3f) - t value: %+.3f - p value: %.3f' % (feature, vv, dd, ss, tt, pp))
+        print('    feature: %20s | value: %.3f difference: %+.3f (%+.3f) - t value: %+.3f - p value: %.3f' %
+              (feature, vv, dd, ss, tt, pp))
 
 # # plots
 
 sns.set()
 sns.set_style('whitegrid')
 
-colorblindfriendly = [ '#1b9e77', '#d95f02', '#7570b3']
+colorblindfriendly = ['#1b9e77', '#d95f02', '#7570b3']
 sns.palplot(colorblindfriendly)
 
 
 # +
 def to_hex(r, g, b):
-    return '#%02x%02x%02x' % (r,g,b)
+    return '#%02x%02x%02x' % (r, g, b)
 
-to_hex(255,150, 9)
+
+to_hex(255, 150, 9)
 # -
 
 theme_dark = ['#3344a7', '#ff9609', '#d22d2f']
 sns.palplot(theme_dark)
 
-theme_light = [ '#a8d6ff', '#ffca68', '#e35e7e']
+theme_light = ['#a8d6ff', '#ffca68', '#e35e7e']
 sns.palplot(theme_light)
 
 
@@ -165,7 +173,7 @@ def get_aggregate_mean_std(immunogen):
     max_ig = pivot_mean['Immunogenicity'].max().max()
     pivot_mean['Immunogenicity'] /= max_ig
     pivot_std['Immunogenicity'] /= max_ig
-    
+
     return max_ig, pivot_mean, pivot_std
 
 
@@ -227,9 +235,40 @@ for i, (ax, col) in enumerate(zip(axes, pivot_mean.columns.levels[0])):
 
 fig.suptitle('Length in amino acids', y=-0.25)
 plt.savefig(f'plots/Fig{FIG_ORDER["bound"]}.{FIG_FORMAT}', bbox_inches='tight')
+
+
 # -
 
 # # bound plot with different immunogenicities (fig. 10)
+
+def get_aggregate_mean_std(immunogen):
+    df = pd.read_csv(f'experiments/results/ig-bound-{immunogen}-evaluation-aggregate.csv')
+    cols = df.columns.tolist()
+    cols[0] = 'metric'
+    df.columns = cols
+
+    vaxmap = {
+        'coverage': 'Pathogen\ncoverage',
+        'norm_prot_coverage': 'Pathogen\ncoverage',
+        'immunogen': 'Immunogenicity',
+        'conservation': 'Conservation',
+        'rel_pop_coverage': 'Population\ncoverage',
+    }
+
+    pivot_mean = df[
+        df.metric.isin(['conservation', 'immunogen', 'norm_prot_coverage', 'rel_pop_coverage'])
+    ].pivot_table('mean', 'aa', ['metric', 'vax']).rename(columns=vaxmap)
+
+    pivot_std = df[
+        df.metric.isin(['conservation', 'immunogen', 'norm_prot_coverage', 'rel_pop_coverage'])
+    ].pivot_table('std', 'aa', ['metric', 'vax']).rename(columns=vaxmap)
+
+    max_ig = pivot_mean['Immunogenicity'].max().max()
+    pivot_mean['Immunogenicity'] /= max_ig
+    pivot_std['Immunogenicity'] /= max_ig
+
+    return max_ig, pivot_mean, pivot_std
+
 
 # +
 pretty_ig = dict(zip([
@@ -239,7 +278,7 @@ pretty_ig = dict(zip([
 bound_mean_data, bound_std_data = [], []
 for ig in ['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']:
     _, pivot_mean, pivot_std = get_aggregate_mean_std(ig)
-    
+
     # here we add a new level to the index
     # https://stackoverflow.com/a/42094658
     bound_mean_data.append(pd.concat([pivot_mean.T], keys=[pretty_ig[ig]], names=['Immunogenicity']))
@@ -273,7 +312,7 @@ differences.index = pd.MultiIndex.from_tuples([
 ])
 
 #differences = differences.T
-#differences.head()
+# differences.head()
 differences
 # -
 
@@ -295,24 +334,28 @@ left_gs = mpl.gridspec.GridSpecFromSubplotSpec(
 
 ax = fig.add_subplot(root_gs[1])
 for i, idx in enumerate(differences.index):
-    box = ax.boxplot(differences.loc[idx], vert=False, patch_artist=True, positions=[i], sym='.')
+    box = ax.boxplot(
+        differences.loc[idx], vert=False, patch_artist=True,
+        positions=[3 * (i // 3) + ((i % 3) - 1) * 0.6],
+        flierprops={
+            'markerfacecolor': theme_dark[i % 3],
+            'markeredgecolor': theme_dark[i % 3],
+            'marker': '.', 'markersize': 2,
+        },
+    )
     for key in box:
         for item in box[key]:
-            item.set_color(theme_dark[i % 3])
+            item.set_color(theme_dark[i % 3] if key != 'medians' else 'k')
 
 ax.yaxis.tick_right()
-ax.set_yticks([
-    y - 0.5 for y in range(0, len(differences), len(differences.index.levels[1]))
-], minor=True)
-ax.set_yticks(range(1, len(differences), len(differences.index.levels[1])), minor=False)
+ax.set_yticks(range(0, len(differences), len(differences.index.levels[1])), minor=False)
 ax.set_yticklabels(differences.index.levels[0])
-ax.grid(True, axis='y', which='minor')
-ax.grid(False, axis='y', which='major')
+ax.grid(False, axis='y')
+ax.set_xlim(0.41, 0.0)
+ax.set_xticks([0.0, 0.1, 0.2, 0.3, 0.4])
 ax.set_xticklabels([f'{x * 100:.0f}\%' for x in ax.get_xticks()])
 ax.set_title('(e) Absolute difference')
-ax.set_xlim(ax.get_xlim()[::-1])
 sns.despine(ax=ax, left=True, right=False, top=True, bottom=False)
-
 
 axes = [fig.add_subplot(left_gs[i, j]) for i in range(2) for j in range(2)]
 
@@ -328,7 +371,7 @@ for ls, ms, ig in zip(linestyles, markerstyles, bound_mean_data.columns.levels[0
 
         ax.set_ylim(0, 1.05)
         ax.set_xlim(40, 140)
-        
+
         ax.set_title(letters[i] + col)
 
         # y axis
@@ -377,6 +420,7 @@ for i in range(1, 6):
     df['rep'] = i
     dfs.append(df)
 df = pd.concat(dfs)
+df.cleavage *= -1
 df.head()
 
 # +
@@ -390,16 +434,55 @@ for rep in df.rep.unique():
         (y1, x1), (y2, x2) = data[i], data[i + 1]
         slope = ((y2 - y1) / 3) / ((x2 - x1) / 40)
         color = 255 * (np.arctan(slope) - vmin) / (vmax - vmin)
-        ax.plot([-x1, -x2], [y1, y2], '.-', color=theme_dark[0])
+        ax.plot([x1, x2], [y1, y2], '.-', color=theme_dark[0])
 
 
-plt.xlabel('Cleavage Score')
+minig, maxig = df['immunogenicity'].min(), df['immunogenicity'].max()
+mincl, maxcl = df['cleavage'].min(), df['cleavage'].max()
+#ax.plot([mincl, maxcl], [0.8 * maxig, 0.8 * maxig], 'C1--')
+#ax.plot([0.8 * maxcl, 0.8 * maxcl], [minig, maxig], 'C2--')
+
+plt.xlabel('Negative Cleavage Score')
 plt.ylabel('Immunogenicity')
 plt.subplots_adjust(hspace=0, wspace=0, left=0, bottom=0, right=1, top=1)
-#sns.despine()
+# sns.despine()
 
 plt.savefig(f'plots/Fig{FIG_ORDER["pareto"]}.{FIG_FORMAT}', bbox_inches='tight')
+
+
 # -
+
+def get_x_value_for_y_percentile(x, y, p, percentile_result=True):
+    miny, maxy = df[y].min(), df[y].max()
+    yy = maxy * p + miny * (1 - p)  # find value for y
+
+    res = []
+    for i, g in df.groupby('rep'):
+        g = g.sort_values(y)
+
+        # find the two observations containing yy
+        cur = 0
+        while g.iloc[cur][y] < yy:
+            cur += 1
+
+        # find where yy stands compared to the two observations (0 = left, 1 = right)
+        q = (yy - g.iloc[cur - 1][y]) / (g.iloc[cur][y] - g.iloc[cur - 1][y])
+
+        # linearly interpolate the value of x
+        r = q * g.iloc[cur - 1][x] + (1 - q) * g.iloc[cur][x]
+
+        res.append(r)
+
+    res = pd.DataFrame([res], index=pd.Index([p if percentile_result else yy], name=y))
+    res.columns.name = x
+    if percentile_result:
+        res /= df[x].max()
+    return res.T.describe().T
+
+
+get_x_value_for_y_percentile('immunogenicity', 'cleavage', 0.8)
+
+get_x_value_for_y_percentile('cleavage', 'immunogenicity', 0.8)
 
 # # advantage (fig. 5)
 
@@ -438,16 +521,16 @@ ax4 = plt.subplot(gs[3])
 
 for i, vax in enumerate(df.vax.unique()):
     data = df[(df.vax == vax) & (df['size'] < 1000)].sort_values('size')
-    
+
     data_ig = data[data.metric == 'immunogen']
     ax1.errorbar(data_ig['size'], data_ig['mean'], yerr=data_ig['std'], fmt='.-', label=vax, color=theme_dark[i])
-    
+
     data_eps = data[data.metric == 'rel_pop_coverage']
     ax2.errorbar(data_eps['size'], data_eps['mean'], yerr=data_eps['std'], fmt='.-', label=vax, color=theme_dark[i])
-    
+
     data_cov = data[data.metric == 'norm_prot_coverage']
     ax3.errorbar(data_cov['size'], data_cov['mean'], yerr=data_cov['std'], fmt='.-', label=vax, color=theme_dark[i])
-    
+
     data_cons = data[data.metric == 'conservation']
     ax4.errorbar(data_cons['size'], data_cons['mean'], yerr=data_cons['std'], fmt='.-', label=vax, color=theme_dark[i])
 
@@ -491,20 +574,20 @@ tt2 = ax2.set_title('(b)')
 tt3 = ax3.set_title('(c)')
 tt4 = ax4.set_title('(d)')
 
-tt1.set_position((0.53, 0.82))
-tt2.set_position((0.53, 0.82))
-tt3.set_position((0.53, 0.0))
-tt4.set_position((0.53, 0.0))
+tt1.set_position((0.53, 0.93))
+tt2.set_position((0.53, 0.93))
+tt3.set_position((0.53, 0.93))
+tt4.set_position((0.53, 0.93))
 
 ax1.grid(False, axis='x')
 ax2.grid(False, axis='x')
 ax3.grid(False, axis='x')
 ax4.grid(False, axis='x')
 
-sns.despine(fig, ax1)
-sns.despine(fig, ax2)
-sns.despine(fig, ax3)
-sns.despine(fig, ax4)
+sns.despine(ax=ax1)
+sns.despine(ax=ax2, left=True, right=False)
+sns.despine(ax=ax3)
+sns.despine(ax=ax4, left=True, right=False)
 
 ax1.legend(loc='upper left')
 
@@ -516,7 +599,7 @@ plt.savefig(f'plots/Fig{FIG_ORDER["advantage"]}.{FIG_FORMAT}', bbox_inches='tigh
 # We parse the log file and look for this piece:
 #
 # ```
-# 2019-09-24 10:51:58,687 INFO: The polypeptide has 184 epitopes 
+# 2019-09-24 10:51:58,687 INFO: The polypeptide has 184 epitopes
 # 2019-09-24 10:51:58,687 INFO: The epitopes have immunogenicity 2.316
 # 2019-09-24 10:51:58,687 INFO: The epitopes cover 27 alleles
 # 2019-09-24 10:51:58,687 INFO: The maximum population coverage is 91.29%
@@ -528,7 +611,6 @@ plt.savefig(f'plots/Fig{FIG_ORDER["advantage"]}.{FIG_FORMAT}', bbox_inches='tigh
 # Every piece is about a different chain, exept for the last one which is about the vaccine as a whole.
 
 # +
-import re
 
 epis, immunogs, popc, protc, cons = [], [], [], [], []
 with open('experiments/results/hiv1bc-full/mosaic-4cocktail-evaluation.log') as f:
@@ -537,22 +619,22 @@ with open('experiments/results/hiv1bc-full/mosaic-4cocktail-evaluation.log') as 
         if match:
             epis.append(int(match.group(1)))
             continue
-        
+
         match = re.search(r'The epitopes have immunogenicity ([0-9.]+)', row)
         if match:
             immunogs.append(float(match.group(1)))
             continue
-        
+
         match = re.search(r'The epitopes cover [0-9.]+% of the population \(([0-9.]+)% of the maximum\)', row)
         if match:
             popc.append(float(match.group(1)) / 100)
             continue
-        
+
         match = re.search(r'The epitopes cover \d+ proteins \(([0-9.]+)% of the total\)', row)
         if match:
             protc.append(float(match.group(1)) / 100)
             continue
-        
+
         match = re.search(r'The average epitope conservation is ([0-9.]+)%', row)
         if match:
             cons.append(float(match.group(1)) / 100)
@@ -590,7 +672,8 @@ def num_epis_to_num_aas(x):
         return 0.0
     elif x['vax'] == 'optitope':
         return x['num_epitopes'] * 9
-    
+
+
 df['num_aas'] = df.apply(num_epis_to_num_aas, axis=1)
 df.loc[(df.vax == 'mosaic'), 'num_aas'] = df[df.vax.str.startswith('chain-')].num_aas.sum()
 
@@ -626,7 +709,7 @@ plt.yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0], ['0\%', '20\%', '40\%', '60\%', '80\%',
 
 plt.legend(handles=[
     mpatches.Patch(facecolor=color[0], edgecolor='k', label='Polypep.'),
-    #mpatches.Patch(facecolor='#ffffff', edgecolor='k', label='Cocktail'),
+    # mpatches.Patch(facecolor='#ffffff', edgecolor='k', label='Cocktail'),
     mpatches.Patch(facecolor=color[4], edgecolor='k', label='Cocktail'),
     mpatches.Patch(facecolor=color[5], edgecolor='k', label='EpiMix'),
     mpatches.Patch(facecolor=color[6], edgecolor='k', label='High imm.'),
@@ -634,7 +717,7 @@ plt.legend(handles=[
 plt.grid(False, axis='x')
 
 plt.subplots_adjust(hspace=0, wspace=0, left=0, bottom=0, right=1, top=1)
-#sns.despine()
+# sns.despine()
 
 plt.savefig(f'plots/Fig{FIG_ORDER["cocktail"]}.{FIG_FORMAT}', bbox_inches='tight')
 
@@ -657,6 +740,7 @@ def read_fasta(fname):
             else:
                 prots[pid].append(row)
     return {pid: ''.join(ps) for pid, ps in prots.items()}
+
 
 prots = read_fasta('experiments/resources/hiv1-bc-nef.fasta')
 
@@ -685,19 +769,19 @@ def find_coverage_by_protein(prots, vax, sort=False):
             seq = pp[j:j+9]
             if seq in vax:
                 peps[seq].append((i, j))
-    
+
     # step 2: aggregate the positions by protein
     mat = np.zeros((len(prots), max(len(p) for p in prots.values())))
     for poss in peps.values():
         for i, j in poss:
             mat[i, j:j+9] += 1
-    
+
     # step 3: sort by similarity
     if sort:
         link = hierarchy.linkage(mat, 'ward')
         idx = hierarchy.leaves_list(link)
         mat = mat[idx]
-    
+
     return mat
 
 
@@ -714,7 +798,7 @@ fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 6))
 ax1.matshow(mat_short[idx].T, cmap='Reds')
 ax1.grid(False)
 ax1.set_xlabel('Protein')
-ax1.xaxis.set_label_position('top') 
+ax1.xaxis.set_label_position('top')
 ax1.set_ylabel('Position')
 ax2.set_ylabel('Position')
 ax2.matshow(mat_long[idx].T, cmap='Reds')
@@ -900,11 +984,11 @@ ax2.set_ylim(0, 1.1)
 
 # scatter matrix
 cm = plt.get_cmap('bwr')
-gs00 = gridspec.GridSpecFromSubplotSpec(5, 5, subplot_spec=gs[:,1], hspace=0, wspace=0)
+gs00 = gridspec.GridSpecFromSubplotSpec(5, 5, subplot_spec=gs[:, 1], hspace=0, wspace=0)
 for i in range(len(corrs)):
     for j in range(len(corrs)):
         plot = fig.add_subplot(gs00[i, j])
-        
+
         plot.set_xticks([])
         plot.set_yticks([])
 
@@ -913,7 +997,7 @@ for i in range(len(corrs)):
         if i > j:
             corr = spearmanr(xs, ys)
             plot.set_facecolor(cm(int(128 + corr[0] * 128)))
-            
+
             # bold if significant (with bonferroni correction)
             if corr[1] < 0.05 / 10:
                 fmt = '\\textbf{{{:.3f}}}\n\\textbf{{{:.0e}}}'
@@ -1059,45 +1143,45 @@ for i, ig_method in enumerate(['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhc
     for j, optimize in enumerate(['netmhcpan', 'netmhcpan-rank', 'pickpocket', 'mhcflurry']):
         ax = axes[i, j]
         data = df[df['optimize'] == optimize]
-        
+
         if i == j:
             sns.distplot(data[optimize].values, ax=ax, rug=True, kde=False, norm_hist=False, bins=8)
         else:
             ax.scatter(data[optimize], data[ig_method], c=data['cleavage'], cmap='viridis', marker='.')
             ax.set_ylim((df[ig_method].min(), df[ig_method].max()))
-        
+
             e1 = [set(e.split(';')) for e in df[df['optimize'] == optimize].sort_values('cleavage')['epitopes'].values]
             e2 = [set(e.split(';')) for e in df[df['optimize'] == ig_method].sort_values('cleavage')['epitopes'].values]
             ious = [len(a & b) / len(a | b) for a, b in zip(e1, e2)]
             shareds = [len(a & b) for a, b in zip(e1, e2)]
             iou = '{:.2f} ({:.2f} - {:.2f})'.format(*np.percentile(ious, [50, 25, 75]))
             shared = '{:.0f} ({:.0f} - {:.0f})'.format(*np.percentile(shareds, [50, 25, 75]))
-            
+
             if 'rank' not in optimize:
                 cname, (corr, pval) = 'Pearson', pearsonr(data[optimize], data[ig_method])
             else:
                 cname, (corr, pval) = 'Spearman', spearmanr(data[optimize], data[ig_method])
-            
+
             if i == 1:
                 xy = 0.975, 0.025
                 ha, va = 'right', 'bottom'
             else:
                 xy = 0.025, 0.975
                 ha, va = 'left', 'top'
-                
+
             ax.annotate(f'IoU: {iou}\nShared epitopes: {shared}\n{cname}: {corr:.2f} ($p$={pval:.0e})',
                         xy=xy, xycoords='axes fraction', ha=ha, va=va)
-            
+
         ax.tick_params(axis='y', rotation=90)
         ax.set_xlim((data[optimize].min(), data[optimize].max()))
         sns.despine(fig, ax)
         ax.grid(False)
-        
+
         if i == 3:
             ax.set_xlabel('Optimize\n' + renames.get(optimize, optimize))
         if j == 0:
             ax.set_ylabel('Immunogenicity\n' + renames.get(ig_method, ig_method))
-            
+
 
 fig.tight_layout()
 plt.savefig(f'plots/Fig{FIG_ORDER["immunogens"]}.{FIG_FORMAT}', bbox_inches='tight')
@@ -1105,7 +1189,9 @@ plt.savefig(f'plots/Fig{FIG_ORDER["immunogens"]}.{FIG_FORMAT}', bbox_inches='tig
 
 # # compare optimized cleavage with shuffled epitopes (fig. 9)
 
-from data_preparation import get_cleavage_score_process
+
+# +
+np.random.seed(22351)
 
 records = []
 for i in tqdm(range(1, 6)):
@@ -1120,7 +1206,7 @@ for i in tqdm(range(1, 6)):
                 epitopes=list(zip(epis[:-1], epis[1:]))
             )
             assert np.allclose(sum(x[2] for x in scores), float(row['cleavage']))
-            
+
             records.append({
                 'immunogen': float(row['immunogenicity']),
                 'cleavage': float(row['cleavage']),
@@ -1130,16 +1216,20 @@ for i in tqdm(range(1, 6)):
                 'index': j,
                 'epis': row['epitopes'],
             })
-            
+
+            orig_epis = epis[:]
             for k in range(50):
                 np.random.shuffle(epis)
+                if orig_epis == epis:
+                    continue
+
                 scores = get_cleavage_score_process(
                     # always make sure these params are equal to
                     # what was used for the optimization
                     penalty=0.1, cleavage_model='pcm', window_size=5,
                     epitopes=list(zip(epis[:-1], epis[1:]))
                 )
-                
+
                 records.append({
                     'immunogen': float(row['immunogenicity']),
                     'cleavage': sum(x[2] for x in scores),
@@ -1150,33 +1240,99 @@ for i in tqdm(range(1, 6)):
                     'rep': k,
                     'epis': ';'.join(epis)
                 })
+# -
 
 df = pd.DataFrame(records)
 df
-
-for i, g in df.groupby(['bootstrap', 'index']):
-    opt = g[g['rep'].isna()].iloc[0]
-    best = g[~g['rep'].isna()].loc[g[~g['rep'].isna()].cleavage.idxmin()]
-    
-    print(opt['cleavage'], opt['epis'])
-    print(best['cleavage'], best['epis'])
-    print('---')
 
 # +
 # number of cleavage sites with positive score
 # False = shuffled, True = optimized
 
 df.groupby(df['rep'].isna()).apply(lambda g: g['positive'].describe())
-
-
 # -
 
-def legend_without_duplicate_labels(ax, **kwargs):
-    # https://stackoverflow.com/a/56253636/521776
-    handles, labels = ax.get_legend_handles_labels()
-    unique = [(h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i]]
-    ax.legend(*zip(*unique), **kwargs)
+# ## correlation between reduction median/std and optimized cleavage
 
+# +
+order = df.groupby([
+    'bootstrap', 'index'
+]).agg({
+    'immunogen': 'min',  # all the same within a group
+    'cleavage': 'mean'
+}).sort_values([
+    'bootstrap',
+    'immunogen'
+]).reset_index()
+
+abs_diff_rows, redux_rows, shared_rows = [], [], []
+for i, row in order.iterrows():
+    g = df[(df['bootstrap'] == row['bootstrap']) & (df['index'] == row['index'])]
+    cleavs = g['cleavage'].values
+
+    assert g['rep'].isna().sum() == 1
+    opt_cleav = g[g['rep'].isna()]['cleavage'].values[0]
+
+    #reduction = g[~g['rep'].isna()]['cleavage'] / opt_cleav
+    #reduction = 100 * (1 - reduction)
+    reduction = g[~g['rep'].isna()]['cleavage'] - opt_cleav
+
+    for j in range(len(reduction)):
+        opt_epis = g[g['rep'].isna()]['epis'].values[0].split(';')
+        shuf_epis = g[~g['rep'].isna()].iloc[j]['epis'].split(';')
+
+        original_order = {e: i for i, e in enumerate(opt_epis)}
+
+        # number of pairs of epitopes follow each other in the original vaccine
+        shuffled_ordering_score = sum(
+            int(original_order[shuf_epis[ei]] + 1 == original_order[shuf_epis[ei + 1]])
+            for ei in range(len(shuf_epis) - 1)
+        )
+
+        # number of epitopes in the shuffled vaccine that are in the same position
+        same_pos = sum(oe == se for oe, se in zip(opt_epis, shuf_epis))
+        assert same_pos != 10
+
+        shared_rows.append({
+            'difference': reduction.iloc[j],
+            'shared': same_pos,
+            'score': shuffled_ordering_score,
+        })
+
+    redux_rows.append({
+        'opt_cleav': opt_cleav,
+        'redux_mean': reduction.mean(),
+        'redux_std': reduction.std(),
+        'redux_median': reduction.median(),
+    })
+# -
+
+redux_df = pd.DataFrame(redux_rows)
+redux_df.head()
+
+print('correlation between median reduction and optimized cleavage score')
+print(spearmanr(redux_df['opt_cleav'], redux_df['redux_median']))
+
+print('correlation between stdev of percent reduction and optimized cleavage score')
+print(spearmanr(redux_df['opt_cleav'], redux_df['redux_std']))
+
+shared_df = pd.DataFrame(shared_rows)
+shared_df.head()
+
+shared_df.groupby('score').apply(lambda g: g['difference'].describe().T)
+
+print('correlation between ordering score and difference')
+spearmanr(shared_df['difference'], shared_df['score'])
+
+shared_df.groupby('score').apply(lambda g: g['difference'].describe().T)
+
+print('correlation between difference and number of shared epitopes')
+spearmanr(shared_df['difference'], shared_df['shared'])
+
+shared_summ = shared_df.groupby('shared').apply(lambda g: g['difference'].describe().T)
+shared_summ
+
+# ## plot
 
 # +
 fig = plt.figure(figsize=(5, 3), dpi=300)
@@ -1197,15 +1353,25 @@ order = df.groupby([
 for i, row in order.iterrows():
     g = df[(df['bootstrap'] == row['bootstrap']) & (df['index'] == row['index'])]
     cleavs = g['cleavage'].values
-    
+
     assert g['rep'].isna().sum() == 1
-    reduction = g[~g['rep'].isna()]['cleavage'] / g[g['rep'].isna()]['cleavage'].values[0]
-    reduction = 100 * (1 - reduction)
-    
-    #ax2.boxplot([reduction], positions=[i])
-    ax2.scatter(reduction, [i] * len(reduction), marker='.',
-                c=f'C{int(row["bootstrap"]) + 1}')
-    ax2.scatter([np.median(reduction)], [i], marker='x', c='k', label='Median')
+    #reduction = g[~g['rep'].isna()]['cleavage'] / g[g['rep'].isna()]['cleavage'].values[0]
+    #reduction = 100 * (1 - reduction)
+    reduction = g[~g['rep'].isna()]['cleavage'] - g[g['rep'].isna()]['cleavage'].values[0]
+
+    color = f'C{int(row["bootstrap"]) + 1}'
+    box = ax2.boxplot([reduction], positions=[i], vert=False, patch_artist=True, flierprops={
+        'marker': '.', 'markersize': 2,
+        'markeredgecolor': color, 'markerfacecolor': color
+    })
+    for key in box:
+        for item in box[key]:
+            item.set_color(color if key != 'medians' else 'k')
+
+    #ax2.scatter([np.median(reduction)], [i], marker='.', c='k', label='Median')
+    # ax2.scatter(reduction, [i] * len(reduction), marker='.',
+    #            c=f'C{int(row["bootstrap"]) + 1}')
+
 
 pos = 0
 for i, g in order.groupby(['bootstrap']):
@@ -1220,7 +1386,7 @@ ax1.set_yticks([])
 ax2.set_yticks([])
 ax1.set_title('(b)')
 ax2.set_title('(a)')
-ax11.set_xlabel('Cleavage Score', color='C1')
+ax11.set_xlabel('Negative Cleavage Score', color='C1')
 ax1.set_xlabel('Vaccine immunogenicity', color='C0')
 
 fig.subplots_adjust(wspace=0.)
@@ -1233,11 +1399,9 @@ group_sizes = [0] + order.groupby(['bootstrap']).agg('size').cumsum().tolist()
 ax2.set_yticks([(a + b) / 2 for a, b in zip(group_sizes[:-1], group_sizes[1:])])
 ax2.set_yticklabels(range(1, len(group_sizes)))
 ax2.set_ylabel('Bootstrap')
-ax2.set_xlabel('Percent decrease in cleavage score')
+ax2.set_xlabel('Absolute decrease in cleavage score')
 sns.despine(fig, ax1)
 sns.despine(fig, ax2)
-
-legend_without_duplicate_labels(ax2)
 
 fig.tight_layout()
 plt.savefig(f'plots/Fig{FIG_ORDER["shuffled"]}.{FIG_FORMAT}', bbox_inches='tight')
@@ -1279,7 +1443,7 @@ for e, i in all_epis.items():
         if e in b:
             coverage[j, i] = 1
 
-np.mean(coverage, axis=1)  # portion of covered epitopes 
+np.mean(coverage, axis=1)  # portion of covered epitopes
 # -
 
 # try to sort stuff decently
@@ -1297,8 +1461,3 @@ ax1.grid(False)
 
 im = ax2.imshow(ovs, vmin=0.4, vmax=0.5)
 fig.colorbar(im, ax=ax2)
-# -
-
-
-
-

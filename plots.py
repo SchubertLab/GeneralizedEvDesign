@@ -1265,7 +1265,7 @@ order = df.groupby([
     'immunogen'
 ]).reset_index()
 
-abs_diff_rows, redux_rows, shared_rows = [], [], []
+all_percent_redux_rows, all_redux_rows, redux_rows, shared_rows = [], [], [], []
 for i, row in order.iterrows():
     g = df[(df['bootstrap'] == row['bootstrap']) & (df['index'] == row['index'])]
     cleavs = g['cleavage'].values
@@ -1273,8 +1273,8 @@ for i, row in order.iterrows():
     assert g['rep'].isna().sum() == 1
     opt_cleav = g[g['rep'].isna()]['cleavage'].values[0]
 
-    #reduction = g[~g['rep'].isna()]['cleavage'] / opt_cleav
-    #reduction = 100 * (1 - reduction)
+    percent_reduction = g[~g['rep'].isna()]['cleavage'] / opt_cleav
+    percent_reduction = 100 * (1 - percent_reduction)
     reduction = g[~g['rep'].isna()]['cleavage'] - opt_cleav
 
     for j in range(len(reduction)):
@@ -1304,8 +1304,22 @@ for i, row in order.iterrows():
         'redux_mean': reduction.mean(),
         'redux_std': reduction.std(),
         'redux_median': reduction.median(),
+        'percent_redux_mean': percent_reduction.mean(),
+        'percent_redux_std': percent_reduction.std(),
+        'percent_redux_median': percent_reduction.median(),
     })
+    
+    all_redux_rows.append([opt_cleav] + reduction.tolist())
+    all_percent_redux_rows.append([opt_cleav] + percent_reduction.tolist())
 # -
+
+print('overall median decrease')
+all_rdf = pd.DataFrame(all_redux_rows).set_index(0)
+pd.Series(all_rdf.values.flatten()).describe()
+
+print('overall median percent decrease')
+all_prdf = pd.DataFrame(all_percent_redux_rows).set_index(0)
+pd.Series(all_prdf.values.flatten()).describe()
 
 redux_df = pd.DataFrame(redux_rows)
 redux_df.head()
@@ -1313,7 +1327,7 @@ redux_df.head()
 print('correlation between median reduction and optimized cleavage score')
 print(spearmanr(redux_df['opt_cleav'], redux_df['redux_median']))
 
-print('correlation between stdev of percent reduction and optimized cleavage score')
+print('correlation between stdev of reduction and optimized cleavage score')
 print(spearmanr(redux_df['opt_cleav'], redux_df['redux_std']))
 
 shared_df = pd.DataFrame(shared_rows)

@@ -285,7 +285,7 @@ def _spacer_design(ei, ej, k, en, cn, cl_pssm, epi_pssms, cleav_pos, allele_prob
         return norm
 
     cl_pssm_norm = normalize_pssm(cl_pssm)
-    alphabet = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+    alphabet = list('ACDEFGHIKLMNPQRSTVWY')
     model = ConcreteModel()
     le = len(ei) + len(ej) + k
     neg_inf = -float("inf")
@@ -413,37 +413,54 @@ def _spacer_design(ei, ej, k, en, cn, cl_pssm, epi_pssms, cleav_pos, allele_prob
                 getattr(instance, "tau_epi").set_value((2-beta)*obj_imm)
 
                 res3 = solver.solve(instance, options=options)  # , tee=True)
-                if (res3.solver.status == SolverStatus.ok) and (res3.solver.termination_condition == TerminationCondition.optimal):
+                if (
+                        res3.solver.status == SolverStatus.ok
+                        and res3.solver.termination_condition == TerminationCondition.optimal
+                ):
                     instance.solutions.load_from(res3)
-                    ci = float(sum(cl_pssm[i][a]*instance.x[model.ci+i,
-                                                            a].value for i in instance.C for a in instance.S[instance.ci+i]))+cl_pssm.get(-1, {}).get("con", 0)
-                    cj = float(sum(cl_pssm[j][a]*instance.x[model.cj+j,
-                                                            a].value for j in instance.C for a in instance.S[instance.cj+j]))+cl_pssm.get(-1, {}).get("con", 0)
-                    imm = float(sum(instance.y[i, a].value*instance.p[a] for a in instance.A for i in instance.R))
-                    non_c = float(sum(cl_pssm[j][a]*instance.x[j+i, a].value for i in range(le-(cn-1))
-                                      for j in instance.C
-                                      for a in instance.S[i+j]
-                                      if i != instance.ci and i != instance.cj))
+                    ci = float(sum(
+                        cl_pssm[i][a] * instance.x[model.ci + i, a].value
+                        for i in instance.C for a in instance.S[instance.ci+i])
+                    ) + cl_pssm.get(-1, {}).get("con", 0)
+                    cj = float(sum(
+                        cl_pssm[j][a] * instance.x[model.cj + j, a].value
+                        for j in instance.C for a in instance.S[instance.cj + j]
+                    )) + cl_pssm.get(-1, {}).get("con", 0)
+                    imm = float(sum(
+                        instance.y[i, a].value * instance.p[a]
+                        for a in instance.A for i in instance.R
+                    ))
+                    non_c = float(sum(
+                        cl_pssm[j][a]*instance.x[j+i, a].value
+                        for i in range(le-(cn-1)) for j in instance.C for a in instance.S[i+j]
+                        if i != instance.ci and i != instance.cj
+                    ))
 
-                    return "".join([a for i in range(len(ei), len(ei) + k) for a in instance.S[i] if
-                                    instance.x[i, a].value]), float(ci+cj)/2, imm, float(ci), float(cj), non_c
+                    return "".join(
+                        a for i in range(len(ei), len(ei) + k) for a in instance.S[i]
+                        if instance.x[i, a].value
+                    ), float(ci + cj)/2, imm, float(ci), float(cj), non_c
                 else:
                     raise RuntimeError("Problem could not be solved. Please check your input.")
             else:
-                ci = float(sum(cl_pssm[i][a]*instance.x[model.ci+i,
-                                                        a].value for i in instance.C for a in instance.S[instance.ci+i]))+cl_pssm.get(-1, {}).get("con", 0)
-                cj = float(sum(cl_pssm[j][a]*instance.x[model.cj+j,
-                                                        a].value for j in instance.C for a in instance.S[instance.cj+j]))+cl_pssm.get(-1, {}).get("con", 0)
-                non_c = float(sum(cl_pssm[j][a]*instance.x[j+i, a].value for i in range(le-(cn-1))
-                                  for j in instance.C
-                                  for a in instance.S[i+j]
-                                  if i != instance.ci and i != instance.cj))
+                ci = float(sum(
+                    cl_pssm[i][a] * instance.x[model.ci + i, a].value
+                    for i in instance.C for a in instance.S[instance.ci + i]
+                )) + cl_pssm.get(-1, {}).get("con", 0)
+                cj = float(sum(
+                    cl_pssm[j][a] * instance.x[model.cj + j, a].value
+                    for j in instance.C for a in instance.S[instance.cj + j]
+                )) + cl_pssm.get(-1, {}).get("con", 0)
+                non_c = float(sum(
+                    cl_pssm[j][a] * instance.x[j + i, a].value
+                    for i in range(le - (cn - 1)) for j in instance.C for a in instance.S[i+j]
+                    if i != instance.ci and i != instance.cj
+                ))
 
-                # print "Epitope pair: ", ei,ej, "Second cleavage: ",0.5*(sum( instance.f[i,a]*instance.x[model.ci+i,a].value for i in instance.C for a in instance.S[model.ci+i] )
-                #             + sum(instance.f[j,a]*instance.x[model.cj+j,a].value for j in instance.C for a in instance.S[model.cj+j])+2*instance.bc), obj_cleav*alpha, "second imm ", instance.obj_epi()
-
-                return "".join([a for i in range(len(ei), len(ei) + k) for a in instance.S[i] if
-                                instance.x[i, a].value]), float(ci+cj)/2, instance.obj_epi(), float(ci), float(cj), non_c
+                return "".join(
+                    a for i in range(len(ei), len(ei) + k) for a in instance.S[i]
+                    if instance.x[i, a].value
+                ), float(ci + cj)/2, instance.obj_epi(), float(ci), float(cj), non_c
         else:
             raise RuntimeError("Problem could not be solved. Please check your input.")
     else:

@@ -57,6 +57,11 @@ STROBE_VACCINE			?= $(BASE_DIR)/$(STROBE_NAME).csv
 STROBE_LOG				?= $(BASE_DIR)/$(STROBE_NAME).log
 STROBE_OPTS				?=
 
+PARETO_NAME				?= made-tradeoff
+PARETO						?= $(BASE_DIR)/$(PARETO_NAME).csv
+PARETO_LOG				?= $(BASE_DIR)/$(PARETO_NAME).log
+PARETO_OPTS				?= 
+
 STROBE_EVAL_NAME		?= $(STROBE_NAME)-evaluation
 STROBE_EVAL				?= $(BASE_DIR)/$(STROBE_EVAL_NAME).csv
 STROBE_EVAL_LOG			?= $(BASE_DIR)/$(STROBE_EVAL_NAME).log
@@ -103,6 +108,7 @@ mosaic: mosaic-eval
 string-of-beads-vaccine: $(STROBE_VACCINE)
 string-of-beads-eval: $(STROBE_EVAL)
 string-of-beads: string-of-beads-eval
+pareto: $(PARETO)
 optitope-vaccine: $(OPTITOPE_VACCINE)
 optitope-eval: $(OPTITOPE_EVAL)
 optitope: optitope-eval
@@ -114,7 +120,7 @@ aggregate-eval: $(AGGREGATE_EVAL)
 # we only copy the input files when the targets are missing
 # this is to prevent somebody from accedentally overwriting them with the samples in the resources folder
 # when they run make -B <something>
-# NB: make -B will redo *everything*, in order to only make the target you specify, you should remove its output 
+# NB: make -B will redo *everything*, in order to only make the target you specify, you should remove its output
 $(ALLELES):
 	mkdir -p $(BASE_DIR)
 	[ ! -f $(ALLELES) ] && cp $(alleles) $(ALLELES) || echo "Not overwriting allele file, remove it manually first!"
@@ -149,6 +155,9 @@ $(MOSAIC_EVAL): $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(MOSAIC_VACCINE)
 
 $(STROBE_VACCINE): $(PROTEINS) $(ALLELES) $(EPITOPES) $(CLEAVAGES)
 	python design.py -v -l $(STROBE_LOG) string-of-beads $(PROTEINS) $(ALLELES) $(EPITOPES) $(CLEAVAGES) $(STROBE_VACCINE) $(STROBE_OPTS)
+
+$(PARETO): $(EPITOPES) $(CLEAVAGES)
+	python tradeoff.py -v -l $(PARETO_LOG) $(EPITOPES) $(CLEAVAGES) $(PARETO) $(PARETO_OPTS)
 
 $(STROBE_EVAL): $(STROBE_VACCINE)
 	python evaluation.py -v -l $(STROBE_EVAL_LOG) vaccine $(PROTEINS) $(COVERAGE) $(ALLELES) $(EPITOPES) $(STROBE_VACCINE) $(STROBE_EVAL)

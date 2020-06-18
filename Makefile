@@ -1,4 +1,4 @@
-.PHONY: all init alleles proteins coverage affinities epitopes cleavages preparation mosaic-vaccine mosaic-eval mosaic string-of-beads-vaccine string-of-beads-eval string-of-beads optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
+.PHONY: all init alleles proteins coverage spacers affinities epitopes cleavages preparation mosaic-vaccine mosaic-eval mosaic string-of-beads-vaccine string-of-beads-eval string-of-beads optitope-vaccine optitope-eval optitope popcover-vaccine popcover-eval popcover clean
 
 # include custom configuration (variables from command line have precedence)
 BASE_DIR?=./dev
@@ -9,7 +9,7 @@ CONFIG?="$(BASE_DIR)/config.mak"
 alleles					?= ./resources/alleles-small.csv
 ALLELES_NAME			?= made-alleles.csv
 ALLELES					?= $(BASE_DIR)/$(ALLELES_NAME)
-proteins				?= ./resources/hiv1-bc-env-small.fasta 
+proteins				?= ./resources/hiv1-bc-env-small.fasta
 PROTEINS_NAME			?= made-proteins.fasta
 PROTEINS				?= $(BASE_DIR)/$(PROTEINS_NAME)
 
@@ -37,6 +37,11 @@ OVERLAPS_NAME			?= made-overlaps
 OVERLAPS				?= $(BASE_DIR)/$(OVERLAPS_NAME).csv
 OVERLAPS_LOG			?= $(BASE_DIR)/$(OVERLAPS_NAME).log
 OVERLAPS_OPTS			?=
+
+SPACERS_NAME			?= made-spacers
+SPACERS						?= $(BASE_DIR)/$(SPACERS_NAME).csv
+SPACERS_LOG				?= $(BASE_DIR)/$(SPACERS_NAME).log
+SPACER_OPTS				?= 
 
 MOSAIC_NAME				?= made-mosaic-vaccine
 MOSAIC_VACCINE			?= $(BASE_DIR)/$(MOSAIC_NAME).csv
@@ -90,6 +95,7 @@ affinities: $(AFFINITIES)
 epitopes: $(EPITOPES)
 overlaps: $(OVERLAPS)
 cleavages: $(CLEAVAGES)
+spacers: $(SPACERS)
 preparation: cleavages epitopes affinities coverage
 mosaic-vaccine: $(MOSAIC_VACCINE)
 mosaic-eval: $(MOSAIC_EVAL)
@@ -131,6 +137,9 @@ $(CLEAVAGES): $(EPITOPES)
 
 $(OVERLAPS): $(EPITOPES)
 	python data_preparation.py -v -l $(OVERLAPS_LOG) compute-overlaps $(EPITOPES) $(OVERLAPS) $(OVERLAPS_OPTS)
+
+$(SPACERS): $(EPITOPES) $(ALLELES)
+	python data_preparation.py -v -l $(SPACERS_LOG) design-spacers $(EPITOPES) $(ALLELES) $(SPACERS) $(SPACERS_OPTS)
 
 $(MOSAIC_VACCINE): $(PROTEINS) $(ALLELES) $(EPITOPES) $(OVERLAPS)
 	python design.py -v -l $(MOSAIC_LOG) mosaic $(PROTEINS) $(ALLELES) $(EPITOPES) $(OVERLAPS) $(MOSAIC_VACCINE) $(MOSAIC_OPTS)

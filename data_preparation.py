@@ -1,5 +1,4 @@
 
-
 import csv
 import heapq
 import itertools
@@ -22,14 +21,15 @@ import pandas as pd
 
 import Fred2
 import utilities
-from Fred2.CleavagePrediction import (CleavageFragmentPredictorFactory,
+from Fred2.CleavagePrediction import (PCM, CleavageFragmentPredictorFactory,
                                       CleavageSitePredictorFactory)
 from Fred2.Core import (Allele, Peptide, Protein,
                         generate_peptides_from_proteins)
 from Fred2.Core.Peptide import Peptide
-from Fred2.EpitopePrediction import (EpitopePredictionResult,
+from Fred2.EpitopePrediction import (BIMAS, EpitopePredictionResult,
                                      EpitopePredictorFactory)
 from Fred2.IO import FileReader
+from optimal_spacer_design import OptimalSpacerDesign
 from team_orienteering_ilp import TeamOrienteeringIlp
 
 LOGGER = None
@@ -41,11 +41,6 @@ LOGGER = None
 def main(verbose, log_file):
     global LOGGER
     LOGGER = utilities.init_logging(verbose, log_file, log_append=False)
-
-
-def is_percent_barrier(i, n, p):
-    ''' returns true if i is on the boundary between two p% blocks of n '''
-    return int(100.0 / p * (i + 1) / n) > int(100 / p * i / n)
 
 
 @main.command()
@@ -114,7 +109,7 @@ def extract_peptides(input_sequences, max_edits, output_peptides, top_n):
                     proteins_by_peptide[seq] = set()
                 proteins_by_peptide[seq].add(i)
 
-        if is_percent_barrier(i, len(proteins), 5):
+        if utilities.is_percent_barrier(i, len(proteins), 5):
             LOGGER.debug('%d proteins analyzed (%.2f%%) and %d peptides extracted...',
                          i + 1, 100 * (i + 1) / len(proteins), len(proteins_by_peptide))
 
@@ -138,7 +133,7 @@ def extract_peptides(input_sequences, max_edits, output_peptides, top_n):
             else:
                 writer.writerow((peptide, ';'.join(list(map(str, reachable_proteins)))))
 
-            if is_percent_barrier(i, len(proteins_by_peptide), 2.5):
+            if utilities.is_percent_barrier(i, len(proteins_by_peptide), 2.5):
                 LOGGER.debug('%d peptides analyzed (%.2f%%)...', i + 1, 100 * (i + 1) / len(proteins_by_peptide))
 
         # save the top N to file
@@ -215,7 +210,6 @@ def get_binding_affinity_process(predictor, batch, alleles):
         return 1 - np.log(ic50) / np.log(50000)
     else:
         raise ValueError(f'unknown predictor: "{predictor}"')
-
 
 
 @main.command()
@@ -351,6 +345,7 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
 @click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
 def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty, processes,
                       cleavage_window, top_proteins, top_immunogen, top_alleles):
+
     epitopes = list(utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).keys())
     LOGGER.info('Loaded %d epitopes', len(epitopes))
 
@@ -367,7 +362,7 @@ def compute_cleavages(input_epitopes, output_cleavages, cleavage_model, penalty,
             for e, f, score in res:
                 writer.writerow((e, f, score))
 
-            if is_percent_barrier(i, len(epitopes), 1):
+            if utilities.is_percent_barrier(i, len(epitopes), 1):
                 LOGGER.debug('Processed %d cleavage pairs (%.2f%%)...',
                              len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
 
@@ -401,7 +396,7 @@ def compute_overlaps(input_epitopes, output_overlaps, processes):
         for epi_from, epi_to, cost in res:
             by_cost[cost].append((epi_from, epi_to))
 
-        if is_percent_barrier(i, len(epitopes), 1):
+        if utilities.is_percent_barrier(i, len(epitopes), 1):
             LOGGER.debug('Processed %d overlap pairs (%.2f%%)...',
                          len(epitopes) * (i + 1), 100 * (i + 1) / len(epitopes))
 
@@ -411,6 +406,64 @@ def compute_overlaps(input_epitopes, output_overlaps, processes):
         for ov in sorted(by_cost.keys()):
             for epi_from, epi_to in by_cost[ov]:
                 f.write('%s,%s,%d\n' % (epi_from, epi_to, ov))
+
+
+@main.command()
+@click.argument('input-epitopes', type=click.Path())
+@click.argument('input-alleles', type=click.Path())
+@click.argument('output-spacers', type=click.Path())
+@click.option('--top-proteins', default=0.0, help='Only consider the top epitopes by protein coverage')
+@click.option('--top-immunogen', default=0.0, help='Only consider the top epitopes by immunogenicity')
+@click.option('--top-alleles', default=0.0, help='Only consider the top epitopes by allele coverage')
+@click.option('--solver', default='gurobi', help='ILP solver to use')
+@click.option('--pssm-cleavage', default='PCM', help='PSSM-based cleavage site predictor')
+@click.option('--pssm-epitope', default='BIMAS', help='PSSM-based epitope predictor')
+@click.option('--min-spacer-length', '-l', default=0, help='Minimum spacer length to consider')
+@click.option('--max-spacer-length', '-L', default=5, help='Maximum spacer length to consider')
+@click.option('--alpha', '-a', default=0.99, help='Specifies how how much junction-cleavage score can be '
+              'sacrificed  to gain lower neo-immunogenicity')
+@click.option('--beta', '-b', default=0.0, help='Specifies how how much noe-immunogenicity score can be '
+              'sacrificed to gain lower non-junction cleavage score')
+@click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
+def design_spacers(input_epitopes, input_alleles, top_proteins, top_immunogen,
+                   min_spacer_length, top_alleles, solver, pssm_cleavage,
+                   alpha, beta, max_spacer_length, pssm_epitope, processes,
+                   output_spacers):
+
+    all_epitopes = list(utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).keys())
+    epitopes = [e for e in all_epitopes if 'X' not in e]
+    LOGGER.debug('Removed %d epitopes with unknown amino acids', len(all_epitopes) - len(epitopes))
+    LOGGER.info('Loaded %d epitopes', len(epitopes))
+
+    alleles_df = utilities.get_alleles_and_thresholds(input_alleles)
+    allele_list = [
+        Allele(a.replace('HLA-', ''), prob=row.frequency / 100)
+        for a, row in alleles_df.iterrows()
+    ]
+    threshold = {a.replace('HLA-', ''): row.threshold for a, row in alleles_df.iterrows()}
+    LOGGER.info('Loaded %d alleles', len(allele_list))
+
+    if pssm_cleavage != 'PCM':
+        raise ValueError('Only PCM supported as cleavage predictor')
+    cleavage_predictor = PCM()  # TODO use factory when it works
+    if pssm_epitope != 'BIMAS':
+        raise ValueError('Only BIMAS supported as epitope predictor')
+    epitope_predictor = BIMAS()  # TODO use factory when it works
+
+    designer = OptimalSpacerDesign(
+        epitopes, cleavage_predictor, epitope_predictor,
+        allele_list, threshold=threshold, solver=solver,
+        k=max_spacer_length, alpha=alpha, beta=beta,
+    ).solve(threads=processes, start=min_spacer_length)
+
+    LOGGER.info('Writing results...')
+    with open(output_spacers, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(('from', 'to', 'score', 'spacer'))
+        writer.writerows(
+            (ei, ej, designer.adj_matrix[ei, ej], designer.spacer[ei, ej])
+            for ei in epitopes for ej in epitopes if ei != ej
+        )
 
 
 if __name__ == '__main__':

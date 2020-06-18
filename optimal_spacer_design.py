@@ -49,7 +49,7 @@ class OptimalSpacerDesign(object):
         :type epi_pred: :class:`~Fred2.Core.Base.AEpitopePredictor`
         :param alleles: A list of :class:`~Fred2.Core.Allele.Allele` for which predictions should be made
         :type alleles: list(:class:`~Fred2.Core.Allele.Allele`)
-        :param int k: The maximal length of a spacer
+        :param int k: List of spacer lengths to optimize on
         :param int en: Length of epitopes
         :param dict(str,float) threshold: A dictionary specifying the epitope prediction threshold for each
                                           :class:`~Fred2.Core.Allele.Allele`
@@ -130,7 +130,7 @@ class OptimalSpacerDesign(object):
         self.__beta = beta
         self.__peptides = list(peptides)
 
-    def solve(self, start=0, threads=None, options=None):
+    def solve(self, threads=None, options=None):
         """
         Solve the epitope assembly problem with spacers optimally using integer linear programming.
 
@@ -139,7 +139,6 @@ class OptimalSpacerDesign(object):
             This can take quite long and should not be done for more and 30 epitopes max!
             Also, one has to disable pre-solving steps in order to use this model.
 
-        :param int start: Start length for spacers (default 0).
         :param int threads: Number of threads used for spacer design.
                             Be careful, if options contain solver threads it will allocate threads*solver_threads cores!
         :param dict(str,str) options: Solver specific options as keys and parameters as values
@@ -186,14 +185,14 @@ class OptimalSpacerDesign(object):
             raise ValueError("Selected alleles with epitope length are not supported by the prediction method.")
 
         # run spacer designs in parallel using multiprocessing
-        task_count = len(self.__peptides) * (len(self.__peptides) - 1) * (self.__k - start + 1)
+        task_count = len(self.__peptides) * (len(self.__peptides) - 1) * len(self.__k)
         task_params = (
             (
                 str(ei), str(ej), i, en, cn, cl_pssm, epi_pssms, cleav_pos, allele_prob,
                 self.__alpha, self.__thresh, self.__solver, self.__beta, options
             )
             for ei, ej in itr.product(self.__peptides, repeat=2) if ei != ej
-            for i in range(start, self.__k + 1)  # iterate on length last to get more accurate tqdm forecast
+            for i in self.__k
         )
         res = utilities.parallel_apply(_runs_lexmin, task_params, threads)
 

@@ -418,17 +418,15 @@ def compute_overlaps(input_epitopes, output_overlaps, processes):
 @click.option('--solver', default='gurobi', help='ILP solver to use')
 @click.option('--pssm-cleavage', default='PCM', help='PSSM-based cleavage site predictor')
 @click.option('--pssm-epitope', default='BIMAS', help='PSSM-based epitope predictor')
-@click.option('--min-spacer-length', '-l', default=0, help='Minimum spacer length to consider')
-@click.option('--max-spacer-length', '-L', default=5, help='Maximum spacer length to consider')
+@click.option('--spacer-length', '-l', type=int, default=[0, 4], multiple=True, help='Spacer length(s) to consider')
 @click.option('--alpha', '-a', default=0.99, help='Specifies how how much junction-cleavage score can be '
               'sacrificed  to gain lower neo-immunogenicity')
 @click.option('--beta', '-b', default=0.0, help='Specifies how how much noe-immunogenicity score can be '
               'sacrificed to gain lower non-junction cleavage score')
 @click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')
 def design_spacers(input_epitopes, input_alleles, top_proteins, top_immunogen,
-                   min_spacer_length, top_alleles, solver, pssm_cleavage,
-                   alpha, beta, max_spacer_length, pssm_epitope, processes,
-                   output_spacers):
+                   top_alleles, solver, pssm_cleavage, alpha, beta,
+                   spacer_length, pssm_epitope, processes, output_spacers):
 
     all_epitopes = list(utilities.load_epitopes(input_epitopes, top_immunogen, top_alleles, top_proteins).keys())
     epitopes = [e for e in all_epitopes if 'X' not in e]
@@ -453,8 +451,8 @@ def design_spacers(input_epitopes, input_alleles, top_proteins, top_immunogen,
     designer = OptimalSpacerDesign(
         epitopes, cleavage_predictor, epitope_predictor,
         allele_list, threshold=threshold, solver=solver,
-        k=max_spacer_length, alpha=alpha, beta=beta,
-    ).solve(threads=processes, start=min_spacer_length)
+        k=spacer_length, alpha=alpha, beta=beta,
+    ).solve(threads=processes)
 
     LOGGER.info('Writing results...')
     with open(output_spacers, 'w') as f:

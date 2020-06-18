@@ -7,7 +7,7 @@ for dir in experiments/results/nef-300-*; do
     # parse fischer's vaccine into our csv format
     python parse_fischer.py -v -l "${dir}/mosaic-fischer-vaccine.log" \
         "${dir}/made-coverage.csv" "${dir}/fischer.fasta" "${dir}/mosaic-fischer-vaccine.csv"
-    
+
     # evaluate fischer's vaccine
     python evaluation.py vaccine \
         "${dir}/made-proteins.fasta" \
@@ -37,7 +37,7 @@ for dir in experiments/results/nef-300-*; do
         BASE_DIR="${dir%/}" \
         MOSAIC_OPTS="--min-overlap 8 --max-epitopes 0 --max-aminoacids $aminoacids --greedy-subtour --min-proteins $min_proteins --min-avg-prot-conservation $conservation --min-alleles $alleles" \
         MOSAIC_NAME="mosaic-genev-vaccine"
-    
+
     # also evaluate on the full set
     make mosaic \
         BASE_DIR="experiments/results/hiv1bc-full" \

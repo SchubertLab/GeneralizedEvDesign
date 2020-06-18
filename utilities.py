@@ -259,6 +259,11 @@ def batches(it, bsize):
             yield res
 
 
+def is_percent_barrier(i, n, p):
+    ''' returns true if i is on the boundary between two p% blocks of n '''
+    return int(100.0 / p * (i + 1) / n) > int(100 / p * i / n)
+
+
 def parallel_apply(apply_fn, task_generator, processes, preload=64, timeout=99999):
     if processes == 1:
         for task in task_generator:
@@ -266,6 +271,7 @@ def parallel_apply(apply_fn, task_generator, processes, preload=64, timeout=9999
         return
 
     pool = mp.Pool(processes=processes if processes > 0 else (mp.cpu_count() + processes))
+    task_generator = iter(task_generator)
     try:
         tasks = []
         task_count = processed_count = 0

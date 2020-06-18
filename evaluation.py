@@ -1,13 +1,13 @@
 
 
 import csv
-from functools import reduce
 import glob
 import logging
 import os
 import re
 import time
 from collections import defaultdict
+from functools import reduce
 from random import sample as random_sample
 
 import click

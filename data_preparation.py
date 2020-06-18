@@ -339,7 +339,8 @@ def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
 @click.option('--top-proteins', default=0.0, help='Only consider the top epitopes by protein coverage')
 @click.option('--top-immunogen', default=0.0, help='Only consider the top epitopes by immunogenicity')
 @click.option('--top-alleles', default=0.0, help='Only consider the top epitopes by allele coverage')
-@click.option('--penalty', '-P', default=0.1, help='How much to penalize wrong cleavages around the desired cleavage site')
+@click.option('--penalty', '-P', default=0.1, help='How much to penalize wrong cleavages'
+                                                   'around the desired cleavage site')
 @click.option('--cleavage-window', '-w', default=5, help='Size of the window to consider for wrong cleavages')
 @click.option('--cleavage-model', '-c', default='PCM', help='Which model to use to predict cleavage sites')
 @click.option('--processes', '-p', default=-1, help='Number of processes to use for parallel computation')

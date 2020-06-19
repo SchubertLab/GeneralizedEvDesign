@@ -64,10 +64,11 @@ def main(input_epitopes, input_cleavages, output_frontier, cocktail,
 
     # read cleavage scores
     cleavage_epitopes = set()
+    cleavages, spacers = {}, {}
     with open(input_cleavages) as f:
-        cleavages = {}
         for row in csv.DictReader(f):
-            cleavages[(row['from'], row['to'])] = float(row['score'])
+            cleavages[row['from'], row['to']] = float(row['score'])
+            spacers[row['from'], row['to']] = row.get('spacer', '')
             cleavage_epitopes.add(row['from'])
             cleavage_epitopes.add(row['to'])
     LOGGER.info('Loaded %d cleavage scores', len(cleavages))
@@ -79,9 +80,10 @@ def main(input_epitopes, input_cleavages, output_frontier, cocktail,
         vertices.append(ep_from)
         vertices_rewards.append(0 if ep_from == '' else epitopes[ep_from]['immunogen'])
         edge_cost.append([
-            cleavages[(ep_from, ep_to)] if ep_from != '' and ep_to != '' else 0.0
+            cleavages[ep_from, ep_to] if ep_from != '' and ep_to != '' and ep_from != ep_to else 0.0
             for ep_to in vertex_to_epitope
         ])
+    LOGGER.info('Graph has %d vertices', len(vertex_to_epitope))
 
     # find optimal design
     solver_build_time = time.time()
@@ -94,13 +96,20 @@ def main(input_epitopes, input_cleavages, output_frontier, cocktail,
     reward_cost = solver.explore_edge_cost_vertex_reward_tradeoff(pareto_steps)
     with open(output_frontier, 'w') as f:
         writer = csv.writer(f)
-        writer.writerow(('immunogenicity', 'cleavage', 'epitopes'))
+        writer.writerow(('immunogenicity', 'cleavage', 'epitopes', 'spacers'))
         for epitopes_index, immunogen, cleavage in reward_cost:
-            epitopes = [vertex_to_epitope[a] for a, _ in epitopes_index[0][1:]]  # FIXME multiple tours?
-            writer.writerow((immunogen, cleavage, ';'.join(epitopes)))
+            vax_epis, vax_spacers = [], []
+            for a, b in epitopes_index[0]: # FIXME multiple tours?
+                if b != 0:
+                    vax_epis.append(vertex_to_epitope[b])
+                if a != 0 and b != 0:
+                    vax_spacers.append(spacers[vertex_to_epitope[a], vertex_to_epitope[b]])
+
+            writer.writerow((immunogen, cleavage, ';'.join(vax_epis), ';'.join(vax_spacers)))
             f.flush()  # write progress immediately
-            LOGGER.info('Immunogenicity: %.3f - Cleavage: %.3f - Epitopes: %s',
-                        immunogen, cleavage, ', '.join(epitopes))
+
+            LOGGER.info('Immunogenicity: %.3f - Cleavage: %.3f - Epitopes: %s - Spacers: %s',
+                        immunogen, cleavage, ', '.join(vax_epis), ', '.join(vax_spacers))
 
 
 if __name__ == '__main__':

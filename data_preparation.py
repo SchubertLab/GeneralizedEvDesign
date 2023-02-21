@@ -19,16 +19,16 @@ import click
 import numpy as np
 import pandas as pd
 
-import Fred2
+import epytope
 import utilities
-from Fred2.CleavagePrediction import (PCM, CleavageFragmentPredictorFactory,
+from epytope.CleavagePrediction import (PCM, CleavageFragmentPredictorFactory,
                                       CleavageSitePredictorFactory)
-from Fred2.Core import (Allele, Peptide, Protein,
+from epytope.Core import (Allele, Peptide, Protein,
                         generate_peptides_from_proteins)
-from Fred2.Core.Peptide import Peptide
-from Fred2.EpitopePrediction import (BIMAS, EpitopePredictionResult,
+from epytope.Core.Peptide import Peptide
+from epytope.EpitopePrediction import (BIMAS, EpitopePredictionResult,
                                      EpitopePredictorFactory)
-from Fred2.IO import FileReader
+from epytope.IO import FileReader
 from optimal_spacer_design import OptimalSpacerDesign
 from team_orienteering_ilp import TeamOrienteeringIlp
 
@@ -194,17 +194,20 @@ def predict_rank_with_netmhcpan(batch, alleles):
 
 def get_binding_affinity_process(predictor, batch, alleles):
     if predictor == 'netmhcpan-rank':
-        return predict_rank_with_netmhcpan(batch, alleles)
-    elif predictor == 'netmhcpan':
-        from Fred2.EpitopePrediction.External import NetMHCpan_4_0
+        from epytope.EpitopePrediction.External import NetMHCpan_4_0
         predictor = NetMHCpan_4_0()
-        return predictor.predict(batch, alleles)
+        return 100 - res.loc[:,pd.IndexSlice[:,:,'Rank']]
+    elif predictor == 'netmhcpan':
+        from epytope.EpitopePrediction.External import NetMHCpan_4_0
+        predictor = NetMHCpan_4_0()
+        res = predictor.predict(batch, alleles)
+        return res.loc[:,pd.IndexSlice[:,:,'Score']]
     elif predictor == 'pickpocket':
-        from Fred2.EpitopePrediction.External import PickPocket_1_1
+        from epytope.EpitopePrediction.External import PickPocket_1_1
         predictor = PickPocket_1_1()
         return predictor.predict(batch, alleles)
     elif predictor == 'mhcflurry':
-        from Fred2.EpitopePrediction.ANN import MHCFlurryPredictor_1_4_3
+        from epytope.EpitopePrediction.ANN import MHCFlurryPredictor_1_4_3
         predictor = MHCFlurryPredictor_1_4_3()
         ic50 = predictor.predict(batch, alleles)
         return 1 - np.log(ic50) / np.log(50000)
@@ -264,11 +267,20 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
     # load affinities, compute bindings and immunogenicities
     epitopes = {}
     with open(input_affinities) as f:
-        for row in csv.DictReader(f):
-            row.pop('Method')
+        score_map = columns = None
+        for idx, *row in csv.reader(f):
+            if columns is None:
+                columns = row
+                continue
+            elif idx in 'Method' or idx == 'Peptides':
+                continue
+            elif idx == 'ScoreType':
+                if len(set(row)) != 1:
+                    raise RuntimeError('make sure that only one score is specified')
+                continue
 
             bindings, immunogen = [], 0.0
-            for col, val in row.items():
+            for col, val in zip(columns, row):
                 if not col.startswith('HLA'):
                     continue
 
@@ -277,7 +289,7 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
                 if val >= alleles[col]['threshold']:
                     bindings.append(col)
 
-            epitopes[row['Seq']] = {
+            epitopes[idx] = {
                 'alleles': ';'.join(bindings),
                 'immunogen': immunogen,
             }
@@ -316,7 +328,7 @@ def extract_epitopes(input_alleles, input_peptides, input_affinities, output_bin
 def get_cleavage_score_process(penalty, cleavage_model, window_size, epitopes):
     #predictor = CleavageSitePredictorFactory(cleavage_model)
     assert cleavage_model.lower() == 'pcm'
-    from Fred2.CleavagePrediction import PCM
+    from epytope.CleavagePrediction import PCM
     predictor = PCM()
 
     results = []

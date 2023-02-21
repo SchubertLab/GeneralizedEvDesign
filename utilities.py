@@ -5,9 +5,9 @@ import multiprocessing as mp
 import numpy as np
 import pandas as pd
 
-from Fred2.Core import Allele, Peptide, Protein
-from Fred2.EpitopePrediction import EpitopePredictionResult
-from Fred2.IO import FileReader
+from epytope.Core import Allele, Peptide, Protein
+from epytope.EpitopePrediction import EpitopePredictionResult
+from epytope.IO import FileReader
 from team_orienteering_ilp import TeamOrienteeringIlp
 
 

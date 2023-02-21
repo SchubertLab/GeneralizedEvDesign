@@ -31,7 +31,7 @@ import pyomo.kernel as pmo
 from pyomo.core.expr.numeric_expr import SumExpression
 from pyomo.opt import SolverFactory, TerminationCondition
 
-from Fred2.Core.Result import EpitopePredictionResult
+from epytope.Core.Result import EpitopePredictionResult
 
 
 class TeamOrienteeringIlp:

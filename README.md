@@ -2,7 +2,13 @@
 General graph-based framework to design epitope vaccines.
 
 # Setup
-This framework makes heavy use of [Fred2](https://github.com/SchubertLab/Fred2) and one of the persistent solvers supported by Pyomo (currently either [Gurobi](https://www.gurobi.com/), which is the default we use, or [CPLEX](https://www.ibm.com/analytics/cplex-optimizer)).
+The dependencies required to run this framework can be installed via the following command:
+
+```
+conda env create --name <env name> --file environment.yml
+```
+
+We make heavy use of [epytope](https://github.com/KohlbacherLab/epytope) and one of the persistent solvers supported by Pyomo (currently either [Gurobi](https://www.gurobi.com/), which is the default we use, or [CPLEX](https://www.ibm.com/analytics/cplex-optimizer)).
 
 # Quick Start
 For your convenience, we provide a makefile that invokes the necessary commands in the right order and with the right arguments, using the sample files in the `resources` folder:
@@ -97,7 +103,7 @@ Following are the commands required to prepare the data:
        alleles=resources/alleles-small.csv
        # customize options with AFFINITIES_OPTS="..."
    ```
-   
+
    Or:
 
    ```
@@ -106,9 +112,9 @@ Following are the commands required to prepare the data:
        dev/hiv1-bc-env-small-coverage.csv \
        dev/hiv1-bc-env-small-affinities.csv
    ```
-   
+
    Sample output:
-   
+
    | Seq       | Method    | HLA-A*02:01 | HLA-A*24:02 | HLA-B*40:01 | ... |
    | --------- | --------- | ----------- | ----------- | ----------- | --- |
    | AADKLWVTV | netmhcpan |      0.256… |      0.070… |      0.138… | ... |
@@ -135,9 +141,9 @@ Following are the commands required to prepare the data:
        dev/hiv1-bc-env-small-affinities.csv \
        dev/hiv1-bc-env-small-epitopes.csv
    ```
-   
+
    Sample output:
-   
+
    | immunogen | alleles                 | proteins | epitope   |
    | --------- | ----------------------- | -------- | --------- |
    |    0.124… | HLA-A*02:01             | 9;18     | QMQEDIISL |
@@ -159,7 +165,7 @@ Following are the commands required to prepare the data:
        dev/hiv1-bc-env-small-epitopes.csv \
        dev/hiv1-bc-env-small-cleavages.csv
    ```
-   
+
    Sample output:
 
    | from      | to        |   score |
@@ -198,11 +204,11 @@ Sample output:
 
 ## Vaccine Design
  - Mosaic: use this generalized framework to design a mosaic vaccine
-   
+
    ```
    make mosaic-vaccine  # customize options with MOSAIC_OPTS="..."
    ```
-   
+
    Or:
 
    ```
@@ -215,7 +221,7 @@ Sample output:
    ```
 
  - String of Beads: use this generalized framework to design a string-of-beads vaccine
-   
+
    ```
    make string-of-beads-vaccine  # customize options with STRING_OF_BEADS_OPTS="..."
    ```
@@ -271,8 +277,8 @@ Sample output:
   |  0       |     1 | YTDTIYWLL |
   |  0       |     2 | LLQYWSQEL |
   |  0       |     3 | YFPNKTMNF |
-  |      ... |   ... | ...       |  
-  
+  |      ... |   ... | ...       |
+
 ## Vaccine Evaluation
 Evaluation computes the following metrics: total immunogenicity, allele coverage, pathogen coverage, average epitope conservation and population coverage. The population coverage is also computed relative to the maximum theoretical coverage that can be achieved with the given alleles.
 
@@ -285,7 +291,7 @@ Make can of course evaluate the vaccines produced by all methods via `make <meth
 The full command for the mosaic vaccine is as follows, make sure to use the correct input file for the vaccine:
 
 ```
-python evaluation.py -v 
+python evaluation.py -v
     resources/hiv1-bc-env-small.fasta \
     dev/hiv1-bc-env-small-coverage.csv \
     resources/alleles-small.csv \

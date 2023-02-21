@@ -27,11 +27,11 @@ from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
 from tqdm import tqdm
 
 import utilities
-from Fred2.CleavagePrediction.PSSM import APSSMCleavageSitePredictor
-from Fred2.Core import Allele, Peptide, Protein
-from Fred2.Core.Base import ACleavageSitePrediction, AEpitopePrediction
-from Fred2.Core.Generator import generate_peptides_from_proteins
-from Fred2.EpitopePrediction.PSSM import APSSMEpitopePrediction
+from epytope.CleavagePrediction.PSSM import APSSMCleavageSitePredictor
+from epytope.Core import Allele, Peptide, Protein
+from epytope.Core.Base import ACleavageSitePrediction, AEpitopePrediction
+from epytope.Core.Generator import generate_peptides_from_proteins
+from epytope.EpitopePrediction.PSSM import APSSMEpitopePrediction
 
 
 class OptimalSpacerDesign(object):
@@ -41,18 +41,18 @@ class OptimalSpacerDesign(object):
                  verbosity=0):
         """
 
-        :param peptides: A list of :class:`~Fred2.Core.Peptide.Peptide` which shell be arranged
-        :type peptides: list(:class:`~Fred2.Core.Peptide.Peptide`)
-        :param cleav_pred: A :class:`~Fred2.CleavagePrediction.PSSM.APSSMCleavageSitePredictor` (PSSM only)
-        :type cleav_pred: :class:`~Fred2.Core.Base.ACleavageSitePredictor`
-        :param epi_pred: A :class:`~Fred2.EpitopePrediction.PSSM.APSSMEpitopePrediction` (PSSM only)
-        :type epi_pred: :class:`~Fred2.Core.Base.AEpitopePredictor`
-        :param alleles: A list of :class:`~Fred2.Core.Allele.Allele` for which predictions should be made
-        :type alleles: list(:class:`~Fred2.Core.Allele.Allele`)
+        :param peptides: A list of :class:`~epytope.Core.Peptide.Peptide` which shell be arranged
+        :type peptides: list(:class:`~epytope.Core.Peptide.Peptide`)
+        :param cleav_pred: A :class:`~epytope.CleavagePrediction.PSSM.APSSMCleavageSitePredictor` (PSSM only)
+        :type cleav_pred: :class:`~epytope.Core.Base.ACleavageSitePredictor`
+        :param epi_pred: A :class:`~epytope.EpitopePrediction.PSSM.APSSMEpitopePrediction` (PSSM only)
+        :type epi_pred: :class:`~epytope.Core.Base.AEpitopePredictor`
+        :param alleles: A list of :class:`~epytope.Core.Allele.Allele` for which predictions should be made
+        :type alleles: list(:class:`~epytope.Core.Allele.Allele`)
         :param int k: List of spacer lengths to optimize on
         :param int en: Length of epitopes
         :param dict(str,float) threshold: A dictionary specifying the epitope prediction threshold for each
-                                          :class:`~Fred2.Core.Allele.Allele`
+                                          :class:`~epytope.Core.Allele.Allele`
         :param str solver: Specifies the solver to use (must be callable by pyomo)
         :param float alpha: Specifies how how much junction-cleavage score can be sacrificed  to gain lower
                             neo-immunogenicity
@@ -142,11 +142,11 @@ class OptimalSpacerDesign(object):
         :param int threads: Number of threads used for spacer design.
                             Be careful, if options contain solver threads it will allocate threads*solver_threads cores!
         :param dict(str,str) options: Solver specific options as keys and parameters as values
-        :return: A list of ordered :class:`~Fred2.Core.Peptide.Peptide`
-        :rtype: list(:class:`~Fred2.Core.Peptide.Peptide`)
+        :return: A list of ordered :class:`~epytope.Core.Peptide.Peptide`
+        :rtype: list(:class:`~epytope.Core.Peptide.Peptide`)
         """
         def __load_model(name, model):
-            return getattr(__import__("Fred2.Data.pssms."+name+".mat."+model, fromlist=[model]), model)
+            return getattr(__import__("epytope.Data.pssms."+name+".mat."+model, fromlist=[model]), model)
 
         options = dict() if options is None else options
 

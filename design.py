@@ -12,15 +12,15 @@ import click
 import numpy as np
 import pandas as pd
 
-import Fred2
+import epytope
 import utilities
-from Fred2.Core import (Allele, Peptide, Protein,
+from epytope.Core import (Allele, Peptide, Protein,
                         generate_peptides_from_proteins)
-from Fred2.Core.Peptide import Peptide
-from Fred2.EpitopePrediction import (EpitopePredictionResult,
+from epytope.Core.Peptide import Peptide
+from epytope.EpitopePrediction import (EpitopePredictionResult,
                                      EpitopePredictorFactory)
-from Fred2.EpitopeSelection import OptiTope  # , PopCover
-from Fred2.IO import FileReader
+from epytope.EpitopeSelection import OptiTope  # , PopCover
+from epytope.IO import FileReader
 from team_orienteering_ilp import TeamOrienteeringIlp
 
 LOGGER = None
@@ -40,9 +40,9 @@ def main(verbose, log_file):
 @click.argument('input-epitopes', type=click.Path())
 @click.argument('input-overlaps', type=click.Path())
 @click.argument('output-vaccine', type=click.Path())
-@click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', type=float)
-@click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', type=float)
-@click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', type=float)
+@click.option('--top-proteins', help='Only consider the top epitopes by protein coverage', default=0.0)
+@click.option('--top-immunogen', help='Only consider the top epitopes by immunogenicity', default=0.0)
+@click.option('--top-alleles', help='Only consider the top epitopes by allele coverage', default=0.0)
 @click.option('--cocktail', '-c', default=1, help='How many strains to include in the vaccine cocktail')
 @click.option('--max-aminoacids', '-a', default=[0], multiple=True, help='Maximum length of the vaccine in aminoacids')
 @click.option('--max-epitopes', '-e', default=[10], multiple=True, help='Maximum length of the vaccine in epitopes')
@@ -51,7 +51,7 @@ def main(verbose, log_file):
 @click.option('--min-avg-prot-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many proteins')
 @click.option('--min-avg-alle-conservation', default=0.0, help='On average, epitopes in the vaccine must cover at least this many alleles')
 @click.option('--greedy-subtour', '-g', is_flag=True, help='Insert MTZ subtour elimination at the beginning')
-@click.option('--min-overlap', '-o', default=0, help='Minimum epitope overlap')
+@click.option('--min-overlap', '-o', default=2, help='Minimum epitope overlap')
 def mosaic(max_epitopes, max_aminoacids, output_vaccine, **kwargs):
     # get model instance
     solver, data = utilities.get_mosaic_solver_instance(LOGGER, **kwargs)
